@@ -6,6 +6,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Génère build/compile_commands.json pour que l'éditeur (clangd) connaisse
+# les include paths et arrête d'afficher de fausses erreurs.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # --- Bibliothèque moteur ---------------------------------------------------
 # On récolte automatiquement tous les .cpp sous engine/.
 # (GLOB par confort d'apprentissage ; en projet « pro » on liste plutôt les
