@@ -30,6 +30,9 @@ class World {
 
         // --- Avancement du temps (corps écrit lors de la session dédiée) ---
         std::vector<Event> tick();
+
+        std::vector<Organism*> organismsInZone(const std::string& zoneName) const;
+        const Zone* richestZoneOtherThan(const std::string& currentZone) const;
 };
 
 #endif
