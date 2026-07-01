@@ -106,8 +106,8 @@ Used for:
 - [x] CLI visualization
 - [x] Narrative interpreter system
 - [x] Linux process observer
+- [x] TUI ecosystem viewer
 - [ ] Relationship graph engine
-- [ ] TUI ecosystem viewer
 - [ ] Web dashboard (localhost)
 
 ---
@@ -140,12 +140,16 @@ Both execution modes are alive:
 
 ```bash
 cmake -S . -B build && cmake --build build
-./build/ecosys            # simulation mode
+./build/ecosys            # simulation mode (plain narration)
+./build/ecosys-tui        # simulation mode, full-terminal ecosystem view
 ./build/ecosys-observe    # observation mode (mirrors /proc)
 ctest --test-dir build    # run the test suites
 ```
 
-CLI narration only — no TUI/web yet.
+The TUI (built on [FTXUI](https://github.com/ArthurSonzogni/FTXUI), fetched
+automatically by CMake) shows each zone as a panel with its organisms and
+their energy bars — a full bar means ready to reproduce — plus a color-coded
+event feed. No web dashboard yet.
 
 ---
 

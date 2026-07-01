@@ -20,6 +20,11 @@ const Zone& World::zoneNamed(const std::string& name) const
     return zones_.at(name);
 }
 
+const std::map<std::string, Zone>& World::zones() const
+{
+    return zones_;
+}
+
 std::mt19937& World::rng()
 {
     return rng_;

@@ -25,6 +25,7 @@ class World {
 
         // --- Accès ---
         const Zone& zoneNamed(const std::string& name) const;
+        const std::map<std::string, Zone>& zones() const;
         std::mt19937& rng();
         unsigned currentTick() const;
         std::size_t population() const;

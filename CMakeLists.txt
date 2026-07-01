@@ -45,6 +45,24 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/apps/cli/observe.cpp)
     target_compile_options(ecosys-observe PRIVATE -Wall -Wextra)
 endif()
 
+# --- TUI (FTXUI) -------------------------------------------------------------
+# La bibliothèque FTXUI est récupérée automatiquement par CMake (FetchContent)
+# au moment de la configuration ; rien à installer sur le système.
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tui/main.cpp)
+    include(FetchContent)
+    set(FTXUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(FTXUI_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(ftxui
+        GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI
+        GIT_TAG v5.0.0
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(ftxui)
+
+    add_executable(ecosys-tui tui/main.cpp)
+    target_link_libraries(ecosys-tui PRIVATE ecosys_engine ftxui::dom ftxui::screen)
+    target_compile_options(ecosys-tui PRIVATE -Wall -Wextra)
+endif()
+
 # --- Tests ------------------------------------------------------------------
 # S'active tout seul dès que tests/engine_tests.cpp existera.
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/engine_tests.cpp)
