@@ -30,6 +30,11 @@ unsigned World::currentTick() const
     return tick_;
 }
 
+std::size_t World::population() const
+{
+    return organisms_.size();
+}
+
 std::vector<Event> World::tick()
 {
     std::vector<Event> events;

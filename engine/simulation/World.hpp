@@ -27,6 +27,7 @@ class World {
         const Zone& zoneNamed(const std::string& name) const;
         std::mt19937& rng();
         unsigned currentTick() const;
+        std::size_t population() const;
 
         // --- Avancement du temps (corps écrit lors de la session dédiée) ---
         std::vector<Event> tick();
