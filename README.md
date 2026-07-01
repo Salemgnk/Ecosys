@@ -101,14 +101,14 @@ Used for:
 
 ## 🚀 Roadmap
 
-- [ ] Core engine (Organism, Event, WorldState)
-- [ ] Tick-based simulation system
-- [ ] CLI visualization
+- [x] Core engine (Organism, Event, World)
+- [x] Tick-based simulation system
+- [x] CLI visualization
+- [x] Narrative interpreter system
 - [ ] Relationship graph engine
 - [ ] Linux process observer
 - [ ] TUI ecosystem viewer
 - [ ] Web dashboard (localhost)
-- [ ] Narrative interpreter system
 
 ---
 
@@ -128,12 +128,15 @@ It aims to make system behavior:
 
 ## 🧪 Status
 
-Early stage — architecture and engine design phase.
+The simulation engine (v1) is alive: organisms metabolize, compete, migrate,
+reproduce and starve across named zones, and a narrative interpreter turns the
+resulting events into a story you can watch tick by tick (`./build/ecosys`).
 
-- No Linux integration yet.
-- No UI yet.
+- Pure simulation only — no Linux integration yet.
+- CLI narration only — no TUI/web yet.
 
-Only the world model is being born.
+Next: the Linux process observer (`/proc`), so real processes map into the
+ecosystem's archetypes.
 
 ---
 
