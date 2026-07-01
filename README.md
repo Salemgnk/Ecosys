@@ -105,8 +105,8 @@ Used for:
 - [x] Tick-based simulation system
 - [x] CLI visualization
 - [x] Narrative interpreter system
+- [x] Linux process observer
 - [ ] Relationship graph engine
-- [ ] Linux process observer
 - [ ] TUI ecosystem viewer
 - [ ] Web dashboard (localhost)
 
@@ -128,15 +128,24 @@ It aims to make system behavior:
 
 ## 🧪 Status
 
-The simulation engine (v1) is alive: organisms metabolize, compete, migrate,
-reproduce and starve across named zones, and a narrative interpreter turns the
-resulting events into a story you can watch tick by tick (`./build/ecosys`).
+Both execution modes are alive:
 
-- Pure simulation only — no Linux integration yet.
-- CLI narration only — no TUI/web yet.
+- **Simulation** (`./build/ecosys`) — organisms metabolize, compete, migrate,
+  reproduce and starve across named zones, narrated tick by tick.
+- **Observation** (`./build/ecosys-observe`) — a real-time mirror of your
+  Linux system: the top 15 processes by memory become organisms, process
+  states become zones (`running`, `sleeping`, `zombie`...), and `/proc` diffs
+  become the story — new PID = born, vanished PID = died, state change =
+  migration, memory growth = thriving.
 
-Next: the Linux process observer (`/proc`), so real processes map into the
-ecosystem's archetypes.
+```bash
+cmake -S . -B build && cmake --build build
+./build/ecosys            # simulation mode
+./build/ecosys-observe    # observation mode (mirrors /proc)
+ctest --test-dir build    # run the test suites
+```
+
+CLI narration only — no TUI/web yet.
 
 ---
 
