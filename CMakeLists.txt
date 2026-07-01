@@ -25,7 +25,8 @@ target_include_directories(ecosys_engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/core
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/ecology
     ${CMAKE_CURRENT_SOURCE_DIR}/engine/simulation
-    ${CMAKE_CURRENT_SOURCE_DIR}/engine/interpreter)
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/interpreter
+    ${CMAKE_CURRENT_SOURCE_DIR}/engine/observer)
 
 target_compile_options(ecosys_engine PRIVATE -Wall -Wextra)
 
@@ -37,6 +38,13 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/apps/cli/main.cpp)
     target_compile_options(ecosys PRIVATE -Wall -Wextra)
 endif()
 
+# --- Exécutable d'observation (mode miroir /proc) ---------------------------
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/apps/cli/observe.cpp)
+    add_executable(ecosys-observe apps/cli/observe.cpp)
+    target_link_libraries(ecosys-observe PRIVATE ecosys_engine)
+    target_compile_options(ecosys-observe PRIVATE -Wall -Wextra)
+endif()
+
 # --- Tests ------------------------------------------------------------------
 # S'active tout seul dès que tests/engine_tests.cpp existera.
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/engine_tests.cpp)
@@ -45,4 +53,12 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/engine_tests.cpp)
     target_link_libraries(engine_tests PRIVATE ecosys_engine)
     target_compile_options(engine_tests PRIVATE -Wall -Wextra)
     add_test(NAME engine_tests COMMAND engine_tests)
+endif()
+
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/observer_tests.cpp)
+    enable_testing()
+    add_executable(observer_tests tests/observer_tests.cpp)
+    target_link_libraries(observer_tests PRIVATE ecosys_engine)
+    target_compile_options(observer_tests PRIVATE -Wall -Wextra)
+    add_test(NAME observer_tests COMMAND observer_tests)
 endif()
