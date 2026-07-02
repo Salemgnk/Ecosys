@@ -2,7 +2,7 @@
 
 void Organism::metabolize()
 {
-    energy_ -= species_->get_metabolicCost();
+    energy_ -= genome_.metabolicCost;
 }
 
 void Organism::feed(double amount)
@@ -11,15 +11,20 @@ void Organism::feed(double amount)
     // Satiété : un organisme ne stocke pas indéfiniment. Plafonner l'énergie
     // désynchronise les reproductions (elles n'arrivent plus toutes en même
     // temps) et amortit le cycle surpopulation/famine.
-    const double satiety = species_->get_reproductionThreshold() * 1.5;
+    const double satiety = genome_.reproductionThreshold * 1.5;
     if (energy_ > satiety) {
         energy_ = satiety;
     }
 }
 
+void Organism::drain(double amount)
+{
+    energy_ -= amount;   // proie mordue ; isAlive() gère la mort à energy <= 0
+}
+
 bool Organism::canReproduce() const
 {
-    return energy_ >= species_->get_reproductionThreshold();
+    return energy_ >= genome_.reproductionThreshold;
 }
 
 double Organism::energy() const
@@ -35,6 +40,26 @@ const std::string& Organism::zoneName() const
 const Species& Organism::species() const
 {
     return *species_;
+}
+
+const Genome& Organism::genome() const
+{
+    return genome_;
+}
+
+void Organism::setGenome(const Genome& g)
+{
+    genome_ = g;
+}
+
+int Organism::generation() const
+{
+    return generation_;
+}
+
+void Organism::setGeneration(int g)
+{
+    generation_ = g;
 }
 
 void Organism::setZone(std::string zoneName)

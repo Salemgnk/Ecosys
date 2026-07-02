@@ -21,6 +21,7 @@
 #include "Species.hpp"
 #include "Grazer.hpp"
 #include "Explorer.hpp"
+#include "Predator.hpp"
 #include "Interpreter.hpp"
 #include "Observer.hpp"
 #include "ProcReader.hpp"
@@ -170,25 +171,26 @@ std::string buildStateJson(const char* mode, unsigned tick,
 // --- Mode simulation : le monde durci de la démo, un tick toutes les 600 ms.
 void simulationLoop()
 {
-    // Monde plus vaste que la démo CLI : trois biomes et davantage de rendement
-    // total, pour que la vue Dieu contemple un monde peuplé plutôt qu'un
-    // effondrement (2 zones pauvres convergent vers ~2 survivants).
+    // Monde de jeu : cinq biomes aux rendements variés, une chaîne alimentaire
+    // (herbivores broutent, prédateurs chassent) et des génomes qui mutent.
     World world(12345);
-    world.addZone(Zone("grasslands", 18.0));
+    world.addZone(Zone("forest", 22.0));
+    world.addZone(Zone("plains", 16.0));
     world.addZone(Zone("shoreline", 12.0));
-    world.addZone(Zone("desert", 7.0));
+    world.addZone(Zone("savanna", 8.0));
+    world.addZone(Zone("desert", 5.0));
 
-    auto grazer = std::make_shared<const Species>("Grazer", 2.0, 12.0, 6.0, 0.5);
+    auto grazer   = std::make_shared<const Species>("Grazer", 2.0, 12.0, 6.0, 0.5);
     auto explorer = std::make_shared<const Species>("Explorer", 3.0, 14.0, 7.0, 0.8);
-    for (int i = 0; i < 5; ++i) {
-        world.addOrganism(std::make_unique<Grazer>(grazer, 6.0, "grasslands"));
+    auto predator = std::make_shared<const Species>("Predator", 4.0, 18.0, 9.0, 0.9);
+
+    const char* biomes[] = {"forest", "plains", "shoreline", "savanna", "desert"};
+    for (const char* b : biomes) {
+        for (int i = 0; i < 4; ++i) world.addOrganism(std::make_unique<Grazer>(grazer, 6.0, b));
+        for (int i = 0; i < 2; ++i) world.addOrganism(std::make_unique<Explorer>(explorer, 6.0, b));
     }
-    for (int i = 0; i < 3; ++i) {
-        world.addOrganism(std::make_unique<Grazer>(grazer, 6.0, "shoreline"));
-    }
-    for (int i = 0; i < 2; ++i) {
-        world.addOrganism(std::make_unique<Explorer>(explorer, 6.0, "desert"));
-        world.addOrganism(std::make_unique<Explorer>(explorer, 6.0, "shoreline"));
+    for (const char* b : {"forest", "plains"}) {
+        for (int i = 0; i < 2; ++i) world.addOrganism(std::make_unique<Predator>(predator, 8.0, b));
     }
 
     Interpreter interpreter;
@@ -209,7 +211,7 @@ void simulationLoop()
                 view.name = o->species().get_name();
                 view.zone = name;
                 view.energy = o->energy();
-                view.maxEnergy = o->species().get_reproductionThreshold();
+                view.maxEnergy = o->genome().reproductionThreshold;
                 view.command = o->species().get_name();
                 organisms.push_back(std::move(view));
             }

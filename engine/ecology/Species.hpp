@@ -1,6 +1,7 @@
 #ifndef SPECIES_HPP
     #define SPECIES_HPP
     #include <string>
+    #include "Genome.hpp"
 
 class Species {
     private : 
@@ -35,6 +36,17 @@ class Species {
         double get_aggressiveness(void) const
         {
             return aggressiveness_;
+        }
+        // Génome de départ de l'archétype (les organismes le copient à la
+        // naissance, puis il mute au fil des générations).
+        Genome baseGenome(void) const
+        {
+            Genome g;
+            g.metabolicCost = metabolicCost_;
+            g.reproductionThreshold = reproductionThreshold_;
+            g.reproductionCost = reproductionCost_;
+            g.aggressiveness = aggressiveness_;
+            return g;
         }
 };
 

@@ -11,7 +11,7 @@ class Grazer : public Organism {
         }
 
         void act(World& world, std::vector<Event>& out) override;
-        std::unique_ptr<Organism> reproduce() override;
+        std::unique_ptr<Organism> reproduce(std::mt19937& rng) override;
 };
 
 #endif

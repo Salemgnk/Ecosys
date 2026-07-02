@@ -15,14 +15,17 @@ void Explorer::act(World& world, std::vector<Event>& out)
     }
 }
 
-std::unique_ptr<Organism> Explorer::reproduce()
+std::unique_ptr<Organism> Explorer::reproduce(std::mt19937& rng)
 {
-    double energyAfterReproduction = energy_ - species_->get_reproductionCost();
+    double energyAfterReproduction = energy_ - genome_.reproductionCost;
     if (energyAfterReproduction < 0.0) {
         return nullptr;
     }
     energy_ = energyAfterReproduction;
-    // Même logique que le Grazer : l'enfant naît avec reproductionCost,
-    // l'énergie totale est conservée.
-    return std::make_unique<Explorer>(species_, species_->get_reproductionCost(), zoneName_);
+    // Même logique que le Grazer : conservation d'énergie, génome muté,
+    // génération incrémentée.
+    auto child = std::make_unique<Explorer>(species_, genome_.reproductionCost, zoneName_);
+    child->setGenome(genome_.mutated(rng));
+    child->setGeneration(generation() + 1);
+    return child;
 }

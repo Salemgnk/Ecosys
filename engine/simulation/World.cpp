@@ -81,19 +81,29 @@ std::vector<Event> World::tick()
             }
         }
 
-        double totalAggressiveness = 0.0;
+        // Seuls les herbivores broutent l'énergie de la zone ; les prédateurs
+        // se nourrissent en chassant (dans leur act()).
+        std::vector<Organism*> grazers;
         for (Organism* occupant : occupants) {
-            totalAggressiveness += occupant->species().get_aggressiveness();
+            if (!occupant->eatsMeat()) {
+                grazers.push_back(occupant);
+            }
         }
-
-        for (Organism* occupant : occupants) {
+        if (grazers.empty()) {
+            continue;
+        }
+        double totalAggressiveness = 0.0;
+        for (Organism* g : grazers) {
+            totalAggressiveness += g->genome().aggressiveness;
+        }
+        for (Organism* g : grazers) {
             double share = (totalAggressiveness > 0.0)
-                ? zone.get_energyYield() * (occupant->species().get_aggressiveness() / totalAggressiveness)
-                : zone.get_energyYield() / static_cast<double>(occupants.size());
-            occupant->feed(share);
+                ? zone.get_energyYield() * (g->genome().aggressiveness / totalAggressiveness)
+                : zone.get_energyYield() / static_cast<double>(grazers.size());
+            g->feed(share);
 
-            EventType type = (occupants.size() > 1) ? EventType::Competed : EventType::Thrived;
-            events.push_back(Event{type, occupant->species().get_name(), name, ""});
+            EventType type = (grazers.size() > 1) ? EventType::Competed : EventType::Thrived;
+            events.push_back(Event{type, g->species().get_name(), name, ""});
         }
     }
 
@@ -104,7 +114,7 @@ std::vector<Event> World::tick()
     std::vector<int> newbornParents;
     for (auto& organism : organisms_) {
         if (organism->isAlive() && organism->canReproduce()) {
-            std::unique_ptr<Organism> child = organism->reproduce();
+            std::unique_ptr<Organism> child = organism->reproduce(rng_);
             if (child != nullptr) {
                 events.push_back(Event{EventType::Reproduced, organism->species().get_name(), organism->zoneName(), ""});
                 events.push_back(Event{EventType::Born, child->species().get_name(), child->zoneName(), ""});

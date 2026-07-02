@@ -1,5 +1,6 @@
 #include <iostream>
 #include <memory>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -51,18 +52,21 @@ static void test_can_reproduce_threshold()
 
 static void test_reproduce_conserves_energy()
 {
+    std::mt19937 rng(1);
     Grazer parent(makeSpecies(1.0, 5.0, 3.0, 0.5), 10.0, "z");
-    std::unique_ptr<Organism> child = parent.reproduce();
+    std::unique_ptr<Organism> child = parent.reproduce(rng);
     REQUIRE(child != nullptr);
     REQUIRE(parent.energy() == 7.0);  // parent -cost
     REQUIRE(child->energy() == 3.0);  // enfant +cost
+    REQUIRE(child->generation() == 1); // l'enfant est de la génération suivante
     // total conservé : 7 + 3 == 10 (l'énergie de départ)
 }
 
 static void test_reproduce_fails_when_too_poor()
 {
+    std::mt19937 rng(1);
     Grazer parent(makeSpecies(1.0, 5.0, 8.0, 0.5), 5.0, "z"); // 5 - 8 < 0
-    std::unique_ptr<Organism> child = parent.reproduce();
+    std::unique_ptr<Organism> child = parent.reproduce(rng);
     REQUIRE(child == nullptr);
     REQUIRE(parent.energy() == 5.0); // inchangé
 }
