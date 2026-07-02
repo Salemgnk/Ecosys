@@ -159,9 +159,9 @@ void simulationLoop()
     // total, pour que la vue Dieu contemple un monde peuplé plutôt qu'un
     // effondrement (2 zones pauvres convergent vers ~2 survivants).
     World world(12345);
-    world.addZone(Zone("grasslands", 14.0));
-    world.addZone(Zone("shoreline", 8.0));
-    world.addZone(Zone("desert", 4.0));
+    world.addZone(Zone("grasslands", 18.0));
+    world.addZone(Zone("shoreline", 12.0));
+    world.addZone(Zone("desert", 7.0));
 
     auto grazer = std::make_shared<const Species>("Grazer", 2.0, 12.0, 6.0, 0.5);
     auto explorer = std::make_shared<const Species>("Explorer", 3.0, 14.0, 7.0, 0.8);

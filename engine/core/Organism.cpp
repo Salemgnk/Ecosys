@@ -8,6 +8,13 @@ void Organism::metabolize()
 void Organism::feed(double amount)
 {
     energy_ += amount;
+    // Satiété : un organisme ne stocke pas indéfiniment. Plafonner l'énergie
+    // désynchronise les reproductions (elles n'arrivent plus toutes en même
+    // temps) et amortit le cycle surpopulation/famine.
+    const double satiety = species_->get_reproductionThreshold() * 1.5;
+    if (energy_ > satiety) {
+        energy_ = satiety;
+    }
 }
 
 bool Organism::canReproduce() const
