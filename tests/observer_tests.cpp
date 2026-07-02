@@ -25,7 +25,7 @@ static bool hasEvent(const std::vector<Event>& events, EventType type,
 
 static ProcessInfo proc(int pid, std::string name, std::string zone, double energy)
 {
-    return ProcessInfo{pid, std::move(name), std::move(zone), energy};
+    return ProcessInfo{pid, 0, std::move(name), std::move(zone), energy};
 }
 
 static void test_first_snapshot_is_silent_baseline()
@@ -86,6 +86,7 @@ static void test_parse_stat_line_with_tricky_comm()
     ProcessInfo info;
     REQUIRE(ProcReader::parseStatLine(line, info));
     REQUIRE(info.pid == 1234);
+    REQUIRE(info.ppid == 1);      // champ n°4 du stat : le parent
     REQUIRE(info.name == "Web (Content)");
     REQUIRE(info.zoneName == "sleeping");
     REQUIRE(info.energy > 0.0);   // 2560 pages -> une valeur en MiB

@@ -93,6 +93,33 @@ static void test_simulation_is_deterministic()
     REQUIRE(runStory(42) == runStory(42));
 }
 
+static void test_relation_graph_records_lineage_and_competition()
+{
+    World world(1);
+    world.addZone(Zone("z", 10.0));
+    // Deux organismes dans la même zone ; le premier est prêt à se reproduire.
+    auto sp = std::make_shared<const Species>("Grazer", 1.0, 5.0, 2.0, 0.5);
+    world.addOrganism(std::make_unique<Grazer>(sp, 20.0, "z"));
+    world.addOrganism(std::make_unique<Grazer>(sp, 20.0, "z"));
+
+    world.tick();
+    const RelationGraph& graph = world.relations();
+    REQUIRE(graph.lineage().size() == 2);       // chacun a fait un enfant
+    REQUIRE(graph.lineage()[0].from == 1);      // parent -> enfant
+    REQUIRE(!graph.competition().empty());      // ils partagent la zone
+}
+
+static void test_dead_organism_leaves_the_graph()
+{
+    RelationGraph graph;
+    graph.addLineage(1, 2);
+    graph.addCompetition(2, 3);
+    graph.removeOrganism(2);
+    REQUIRE(graph.lineage().empty());
+    REQUIRE(graph.competition().empty());
+    REQUIRE(graph.all().empty());
+}
+
 static void test_explorer_migrates_to_richer_zone()
 {
     World world(1);
@@ -114,6 +141,8 @@ int main()
     test_reproduce_conserves_energy();
     test_reproduce_fails_when_too_poor();
     test_simulation_is_deterministic();
+    test_relation_graph_records_lineage_and_competition();
+    test_dead_organism_leaves_the_graph();
     test_explorer_migrates_to_richer_zone();
 
     if (g_failures > 0) {

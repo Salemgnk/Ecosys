@@ -8,6 +8,7 @@
     #include "Organism.hpp"
     #include "Zone.hpp"
     #include "Event.hpp"
+    #include "RelationGraph.hpp"
 
 class World {
     private:
@@ -16,6 +17,7 @@ class World {
         std::mt19937 rng_;
         unsigned tick_ = 0;
         int nextId_ = 0;   // attribution des identités stables des organismes
+        RelationGraph relations_;
 
     public:
         explicit World(unsigned seed = 12345);
@@ -27,6 +29,7 @@ class World {
         // --- Accès ---
         const Zone& zoneNamed(const std::string& name) const;
         const std::map<std::string, Zone>& zones() const;
+        const RelationGraph& relations() const;
         std::mt19937& rng();
         unsigned currentTick() const;
         std::size_t population() const;

@@ -57,18 +57,19 @@ bool ProcReader::parseStatLine(const std::string& statContent, ProcessInfo& out)
     }
     out.name = statContent.substr(open + 1, close - open - 1);
 
-    // Après la ')' : state est le 1er champ, rss le 22e (champ n°24 du stat).
+    // Après la ')' : state est le 1er champ, ppid le 2e, rss le 22e
+    // (champs n°3, 4 et 24 du format stat).
     std::istringstream rest(statContent.substr(close + 1));
     std::string state;
-    rest >> state;
-    if (state.empty()) {
+    rest >> state >> out.ppid;
+    if (state.empty() || !rest) {
         return false;
     }
     out.zoneName = zoneFromState(state[0]);
 
     long rssPages = 0;
     std::string skip;
-    for (int i = 0; i < 20; ++i) {
+    for (int i = 0; i < 19; ++i) {
         rest >> skip;
     }
     rest >> rssPages;
