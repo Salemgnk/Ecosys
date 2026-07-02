@@ -19,5 +19,10 @@ class Zone {
         {
             return energyYield_;
         }
+        // Modifiable par les pouvoirs divins (bénir / assécher une zone).
+        void set_energyYield(double y)
+        {
+            energyYield_ = y < 0.0 ? 0.0 : y;
+        }
 };
 #endif

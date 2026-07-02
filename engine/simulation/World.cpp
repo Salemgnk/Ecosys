@@ -1,8 +1,52 @@
 #include "World.hpp"
 #include <algorithm>
+#include <unordered_set>
 
 World::World(unsigned seed): rng_(seed) {
 
+}
+
+bool World::hasZone(const std::string& name) const
+{
+    return zones_.count(name) > 0;
+}
+
+void World::setZoneYield(const std::string& name, double yield)
+{
+    auto it = zones_.find(name);
+    if (it != zones_.end()) {
+        it->second.set_energyYield(yield);
+    }
+}
+
+void World::scaleAllYields(double factor)
+{
+    for (auto& [name, zone] : zones_) {
+        zone.set_energyYield(zone.get_energyYield() * factor);
+    }
+}
+
+std::size_t World::cullZone(const std::string& name, double fraction)
+{
+    std::vector<int> ids;
+    for (auto& o : organisms_) {
+        if (o->zoneName() == name && o->isAlive()) {
+            ids.push_back(o->id());
+        }
+    }
+    std::size_t toKill = static_cast<std::size_t>(ids.size() * fraction);
+    if (toKill == 0 && !ids.empty() && fraction > 0.0) {
+        toKill = 1;
+    }
+    std::unordered_set<int> kill(ids.begin(), ids.begin() + std::min(toKill, ids.size()));
+    for (int id : kill) {
+        relations_.removeOrganism(id);
+    }
+    organisms_.erase(
+        std::remove_if(organisms_.begin(), organisms_.end(),
+                       [&](const std::unique_ptr<Organism>& o) { return kill.count(o->id()) > 0; }),
+        organisms_.end());
+    return kill.size();
 }
 
 void World::addZone(Zone zone)

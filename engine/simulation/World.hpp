@@ -39,6 +39,12 @@ class World {
 
         std::vector<Organism*> organismsInZone(const std::string& zoneName) const;
         const Zone* richestZoneOtherThan(const std::string& currentZone) const;
+
+        // --- Pouvoirs divins ---
+        void setZoneYield(const std::string& name, double yield);   // bénir / assécher
+        void scaleAllYields(double factor);                        // sécheresse / abondance
+        std::size_t cullZone(const std::string& name, double fraction);  // foudroyer
+        bool hasZone(const std::string& name) const;
 };
 
 #endif
