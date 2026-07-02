@@ -42,7 +42,7 @@ ProcReader::ProcReader(std::size_t topN): topN_(topN)
 
 bool ProcReader::parseStatLine(const std::string& statContent, ProcessInfo& out)
 {
-    // Format de /proc/[pid]/stat : "pid (comm) state ppid ... rss ..."
+    // Format de /proc/[pid]x/stat : "pid (comm) state ppid ... rss ..."
     // Piège classique : comm peut contenir espaces et parenthèses
     // (ex. "(Web Content)"), donc on repère la DERNIÈRE ')' et on parse
     // le reste à partir de là.
