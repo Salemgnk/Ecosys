@@ -60,6 +60,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 // ---------- état du monde côté client ----------
 const zones = new Map();      // name -> {x,y,r, targetR, hue, phase}
 const creatures = new Map();  // id -> creature
+let relations = [];           // liens lignée / compétition entre ids
 let mode = '…', tick = 0, population = 0;
 let lastSeq = 0;
 const feedEl = document.getElementById('feed');
@@ -113,6 +114,7 @@ async function poll() {
     const s = await (await fetch('/state')).json();
     if (!s.zones) return;
     mode = s.mode; tick = s.tick; population = s.population;
+    relations = s.relations || [];
 
     const seen = new Set();
     for (const zv of s.zones) { const z = ensureZone(zv.name); z.yield = zv.yield; seen.add(zv.name); }
@@ -247,6 +249,28 @@ function drawCreature(c, t, dt) {
   c.drawSize = size;   // pour le survol/clic
 }
 
+// Les liens entre créatures : la lignée en fil lumineux (courbe douce),
+// la compétition en fil rouge très discret.
+function drawRelations(t) {
+  for (const r of relations) {
+    const a = creatures.get(r.from), b = creatures.get(r.to);
+    if (!a || !b || a.dying || b.dying) continue;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - 14;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.quadraticCurveTo(mx, my, b.x, b.y);
+    if (r.type === 'lineage') {
+      const shimmer = 0.22 + 0.1 * Math.sin(t * 2 + r.from);
+      ctx.strokeStyle = `hsla(140,70%,70%,${shimmer})`;
+      ctx.lineWidth = 1.2;
+    } else {
+      ctx.strokeStyle = 'hsla(4,75%,60%,.20)';
+      ctx.lineWidth = 1;
+    }
+    ctx.stroke();
+  }
+}
+
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -257,6 +281,7 @@ function frame(now) {
     ctx.fillRect(s.x * W, s.y * H, s.s, s.s);
   }
   for (const z of zones.values()) drawZone(z, t);
+  drawRelations(t);
   for (const c of creatures.values()) drawCreature(c, t, dt);
   drawPanel();
   requestAnimationFrame(frame);
@@ -303,12 +328,22 @@ function drawPanel() {
   if (selection.kind === 'creature') {
     const c = creatures.get(selection.key);
     if (!c) { selection = null; return; }
+    // La famille, lue dans le graphe de relations.
+    const parentRel = relations.find(r => r.type === 'lineage' && r.to === c.id);
+    const parent = parentRel ? creatures.get(parentRel.from) : null;
+    const children = relations.filter(r => r.type === 'lineage' && r.from === c.id)
+                              .map(r => creatures.get(r.to)).filter(Boolean);
+    const rivals = relations.filter(r => r.type === 'competition' &&
+                                         (r.from === c.id || r.to === c.id)).length;
     html = `<h3>${c.name}</h3>`
          + row(mode === 'observation' ? 'pid' : 'id', c.id)
          + row('zone', c.zone)
          + row('energy', Math.round(c.energy * 100) / 100 +
                (mode === 'observation' ? ' MiB' : ''))
-         + (mode === 'simulation' ? row('repro. at', c.max) : '');
+         + (mode === 'simulation' ? row('repro. at', c.max) : '')
+         + (parent ? row('parent', parent.name + ' #' + parent.id) : '')
+         + (children.length ? row('children', children.length) : '')
+         + (rivals ? row('rivals', rivals) : '');
   } else {
     const z = zones.get(selection.key);
     if (!z) { selection = null; return; }

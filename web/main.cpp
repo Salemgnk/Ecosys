@@ -20,6 +20,7 @@
 #include "Interpreter.hpp"
 #include "Observer.hpp"
 #include "ProcReader.hpp"
+#include "RelationGraph.hpp"
 
 // ecosys-web : la "vue Dieu" servie sur localhost.
 // Le monde (simulé, ou miroir de /proc avec --observe) tourne dans un thread ;
@@ -115,6 +116,7 @@ struct ZoneView {
 std::string buildStateJson(const char* mode, unsigned tick,
                            const std::vector<ZoneView>& zones,
                            const std::vector<OrganismView>& organisms,
+                           const std::vector<Relation>& relations,
                            const EventLog& log)
 {
     std::ostringstream out;
@@ -134,6 +136,15 @@ std::string buildStateJson(const char* mode, unsigned tick,
             << "\",\"zone\":\"" << jsonEscape(o.zone)
             << "\",\"energy\":" << o.energy
             << ",\"max\":" << o.maxEnergy << "}";
+    }
+    out << "],\"relations\":[";
+    for (std::size_t i = 0; i < relations.size(); ++i) {
+        const Relation& r = relations[i];
+        if (i > 0) out << ",";
+        out << "{\"from\":" << r.from << ",\"to\":" << r.to
+            << ",\"type\":\""
+            << (r.type == RelationType::Lineage ? "lineage" : "competition")
+            << "\"}";
     }
     out << "],\"events\":";
     log.serialize(out);
@@ -184,7 +195,8 @@ void simulationLoop()
             }
         }
         publishState(buildStateJson("simulation", world.currentTick(),
-                                    zones, organisms, log));
+                                    zones, organisms, world.relations().all(),
+                                    log));
 
         std::this_thread::sleep_for(std::chrono::milliseconds(600));
     }
@@ -229,7 +241,21 @@ void observationLoop()
             organisms.push_back({proc.pid, proc.name, proc.zoneName,
                                  proc.energy, maxEnergy});
         }
-        publishState(buildStateJson("observation", tick, zones, organisms, log));
+
+        // Le graphe réel : l'arbre des processus (arête quand parent et
+        // enfant sont tous deux visibles dans le top-N).
+        std::vector<Relation> relations;
+        for (const ProcessInfo& proc : snapshot) {
+            for (const ProcessInfo& candidate : snapshot) {
+                if (candidate.pid == proc.ppid) {
+                    relations.push_back(
+                        Relation{proc.ppid, proc.pid, RelationType::Lineage});
+                    break;
+                }
+            }
+        }
+        publishState(buildStateJson("observation", tick, zones, organisms,
+                                    relations, log));
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }

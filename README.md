@@ -108,7 +108,7 @@ Used for:
 - [x] Linux process observer
 - [x] TUI ecosystem viewer
 - [x] Web dashboard (localhost)
-- [ ] Relationship graph engine
+- [x] Relationship graph engine
 
 ---
 
@@ -155,8 +155,11 @@ event feed.
 
 The web dashboard is a **god view**: zones are organic islands drifting in the
 dark, organisms are living creatures that wander, pulse with energy, migrate
-between islands and fade away when they die. Hover a creature for a quick
-look, click it (or an island) for details. In `--observe` mode the islands are
+between islands and fade away when they die. Relationships are drawn as
+threads between creatures: shimmering green for lineage (parent → child, or
+the real process tree in observe mode), faint red for competition. Hover a
+creature for a quick look, click it (or an island) for details including its
+family. In `--observe` mode the islands are
 process states and the creatures are your machine's actual processes. The
 C++ server (cpp-httplib, fetched by CMake) streams world state as JSON; the
 frontend is a single dependency-free Canvas page.
