@@ -38,6 +38,12 @@ std::string g_stateJson = "{}";
 bool g_allowKill = false;      // /kill n'existe que si --allow-kill
 std::size_t g_topN = 50;       // processus suivis (--top N / --all)
 
+// Pouvoirs divins : les endpoints empilent des commandes ; la boucle de
+// simulation les applique sur SON thread (pas de course sur le World).
+struct GodCommand { std::string action, zone, species; };
+std::mutex g_cmdMutex;
+std::vector<GodCommand> g_commands;
+
 void publishState(std::string json)
 {
     std::lock_guard<std::mutex> lock(g_stateMutex);
@@ -200,6 +206,34 @@ void simulationLoop()
     EventLog log;
 
     while (true) {
+        // Appliquer les pouvoirs divins en attente (sur ce thread).
+        {
+            std::lock_guard<std::mutex> lock(g_cmdMutex);
+            for (const GodCommand& c : g_commands) {
+                if (c.action == "seed" && world.hasZone(c.zone)) {
+                    for (int i = 0; i < 3; ++i) {
+                        if (c.species == "Predator")
+                            world.addOrganism(std::make_unique<Predator>(predator, 12.0, c.zone));
+                        else if (c.species == "Explorer")
+                            world.addOrganism(std::make_unique<Explorer>(explorer, 6.0, c.zone));
+                        else
+                            world.addOrganism(std::make_unique<Grazer>(grazer, 6.0, c.zone));
+                    }
+                } else if (c.action == "bless" && world.hasZone(c.zone)) {
+                    world.setZoneYield(c.zone, world.zoneNamed(c.zone).get_energyYield() * 1.4 + 2.0);
+                } else if (c.action == "curse" && world.hasZone(c.zone)) {
+                    world.setZoneYield(c.zone, world.zoneNamed(c.zone).get_energyYield() * 0.6);
+                } else if (c.action == "smite" && world.hasZone(c.zone)) {
+                    world.cullZone(c.zone, 0.5);
+                } else if (c.action == "drought") {
+                    world.scaleAllYields(0.6);
+                } else if (c.action == "abundance") {
+                    world.scaleAllYields(1.5);
+                }
+            }
+            g_commands.clear();
+        }
+
         for (const Event& event : world.tick()) {
             log.push(event, interpreter);
         }
@@ -360,8 +394,25 @@ int main(int argc, char** argv)
         });
     }
 
+    // Pouvoirs divins : uniquement en mode simulation (le jeu).
+    if (!observe) {
+        server.Post("/god", [](const httplib::Request& req, httplib::Response& res) {
+            GodCommand c;
+            c.action  = req.has_param("action")  ? req.get_param_value("action")  : "";
+            c.zone    = req.has_param("zone")     ? req.get_param_value("zone")    : "";
+            c.species = req.has_param("species")  ? req.get_param_value("species") : "";
+            bool ok = !c.action.empty();
+            if (ok) {
+                std::lock_guard<std::mutex> lock(g_cmdMutex);
+                g_commands.push_back(std::move(c));
+            }
+            res.set_content(std::string("{\"ok\":") + (ok ? "true" : "false") + "}",
+                            "application/json");
+        });
+    }
+
     std::cout << "Ecosys monitor — http://localhost:" << port
-              << (observe ? "  (observing /proc)" : "  (simulation)")
+              << (observe ? "  (observing /proc)" : "  (simulation · god powers on)")
               << (g_allowKill ? "  [kill enabled]" : "") << "\n";
     if (!server.listen("127.0.0.1", port)) {
         std::cerr << "Could not bind port " << port << "\n";

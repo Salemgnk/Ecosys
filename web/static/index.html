@@ -117,6 +117,26 @@
   #kill:hover{background:rgba(255,111,94,.12);box-shadow:0 0 18px -6px rgba(255,111,94,.6)}
   #kill.confirm{background:var(--dead);color:#1a0a08;border-color:var(--dead);font-weight:600}
 
+  /* ---------- pouvoirs divins ---------- */
+  #god{position:absolute;left:16px;bottom:40px;z-index:6;display:none;width:224px;
+       background:var(--glass);border:1px solid var(--edge);border-radius:12px;
+       backdrop-filter:blur(11px);padding:12px 13px;
+       box-shadow:0 16px 50px rgba(0,0,0,.55), inset 0 0 44px -30px var(--glow)}
+  #god .gh{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--heat);
+           text-shadow:0 0 12px rgba(255,207,122,.4);margin-bottom:10px}
+  #god .grow{display:flex;align-items:center;gap:5px;margin:6px 0;flex-wrap:wrap}
+  #god .gl{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim);
+           width:34px;flex:none}
+  #god select{flex:1;background:rgba(4,9,14,.7);border:1px solid var(--edge);border-radius:8px;
+              color:var(--ink-bright);font-family:var(--mono);font-size:11px;padding:5px 8px;outline:none}
+  #god button{flex:1;min-width:52px;background:transparent;border:1px solid var(--edge);
+              color:var(--ink);border-radius:8px;padding:5px 4px;cursor:pointer;
+              font-family:var(--mono);font-size:10px;letter-spacing:.06em;transition:.15s}
+  #god button:hover{border-color:var(--sel);color:var(--sel);box-shadow:0 0 12px -3px var(--glow)}
+  #god button.danger{border-color:rgba(255,111,94,.4);color:var(--dead)}
+  #god button.danger:hover{box-shadow:0 0 12px -3px rgba(255,111,94,.6)}
+  #god button:active{transform:translateY(1px)}
+
   #tip{position:absolute;display:none;pointer-events:none;font-size:11px;
        background:var(--glass);border:1px solid var(--edge);border-radius:7px;
        padding:5px 10px;color:var(--ink-bright);backdrop-filter:blur(6px);white-space:nowrap;
@@ -158,6 +178,21 @@
       <div class="act" id="cAct"></div>
     </div>
     <div id="tip"></div>
+    <div id="god">
+      <div class="gh">☼ divine powers</div>
+      <div class="grow"><span class="gl">zone</span><select id="godZone"></select></div>
+      <div class="grow"><span class="gl">seed</span>
+        <button data-seed="Grazer">Grazer</button>
+        <button data-seed="Explorer">Explorer</button>
+        <button data-seed="Predator">Predator</button></div>
+      <div class="grow"><span class="gl">zone</span>
+        <button data-act="bless">bless</button>
+        <button data-act="curse">drain</button>
+        <button data-act="smite" class="danger">smite</button></div>
+      <div class="grow"><span class="gl">world</span>
+        <button data-act="drought">drought</button>
+        <button data-act="abundance">abundance</button></div>
+    </div>
   </main>
 </div>
 
@@ -212,7 +247,9 @@ async function poll(){
     if(!s.organisms) return;
     mode=s.mode; canKill=s.canKill;
     document.getElementById('sub').textContent =
-      mode==='observation' ? 'this machine · '+s.population+' processes' : 'sandbox simulation';
+      mode==='observation' ? 'this machine · '+s.population+' processes' : 'god game · shape the ecosystem';
+    document.getElementById('god').style.display = mode==='simulation' ? 'block' : 'none';
+    if(mode==='simulation') updateGodZones(s.zones.map(z=>z.name));
 
     procs=s.organisms;
     procById=new Map(procs.map(p=>[p.id,p]));
@@ -349,6 +386,23 @@ document.querySelectorAll('.sort button').forEach(b=>b.onclick=()=>{
   sortKey=b.dataset.sort; document.querySelectorAll('.sort button').forEach(x=>x.classList.toggle('on',x===b));
   renderList();
 });
+
+// ---------- pouvoirs divins ----------
+function updateGodZones(names){
+  const sel=document.getElementById('godZone'); if(!sel) return;
+  const cur=sel.value;
+  sel.innerHTML=names.map(n=>`<option>${n}</option>`).join('');
+  if(names.includes(cur)) sel.value=cur;
+}
+function invoke(action, species){
+  const sel=document.getElementById('godZone');
+  const q=new URLSearchParams({action});
+  if(action!=='drought' && action!=='abundance' && sel) q.set('zone', sel.value);
+  if(species) q.set('species', species);
+  fetch('/god?'+q.toString(), {method:'POST'}).catch(()=>{});
+}
+document.querySelectorAll('#god button[data-seed]').forEach(b=>b.onclick=()=>invoke('seed', b.dataset.seed));
+document.querySelectorAll('#god button[data-act]').forEach(b=>b.onclick=()=>invoke(b.dataset.act));
 
 // ---------- arbre radial : mise en page déterministe (aérée par construction) ----------
 let ringGap=80;
