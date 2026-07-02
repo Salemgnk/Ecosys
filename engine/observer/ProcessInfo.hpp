@@ -11,6 +11,11 @@ struct ProcessInfo {
     std::string name;         // le "qui" de la narration (comm)
     std::string zoneName;     // le "où" : l'état du processus (running, sleeping...)
     double energy = 0.0;      // mémoire résidente (RSS) en MiB
+    // Champs ajoutés APRÈS energy pour ne pas casser l'init agrégée existante.
+    long cpuJiffies = 0;      // utime + stime (ticks CPU cumulés) -> %CPU par delta
+    int threads = 0;          // nombre de threads
+    double cpu = 0.0;         // %CPU calculé par l'appelant (delta entre snapshots)
+    std::string command;      // ligne de commande complète (/proc/pid/cmdline)
 };
 
 #endif

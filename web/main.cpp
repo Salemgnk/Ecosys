@@ -1,14 +1,18 @@
 #include <algorithm>
 #include <chrono>
+#include <csignal>
 #include <cstring>
 #include <deque>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <unistd.h>   // sysconf(_SC_CLK_TCK)
 
 #include <httplib.h>
 
@@ -30,6 +34,7 @@ namespace {
 
 std::mutex g_stateMutex;
 std::string g_stateJson = "{}";
+bool g_allowKill = false;   // /kill n'existe que si --allow-kill
 
 void publishState(std::string json)
 {
@@ -106,6 +111,10 @@ struct OrganismView {
     std::string zone;
     double energy;
     double maxEnergy;   // référence pour la jauge (seuil de repro / max observé)
+    double cpu = 0.0;   // %CPU (observation) ; 0 en simulation
+    int threads = 0;
+    int ppid = 0;
+    std::string command;
 };
 
 struct ZoneView {
@@ -121,6 +130,7 @@ std::string buildStateJson(const char* mode, unsigned tick,
 {
     std::ostringstream out;
     out << "{\"mode\":\"" << mode << "\",\"tick\":" << tick
+        << ",\"canKill\":" << (g_allowKill ? "true" : "false")
         << ",\"population\":" << organisms.size() << ",\"zones\":[";
     for (std::size_t i = 0; i < zones.size(); ++i) {
         if (i > 0) out << ",";
@@ -135,7 +145,11 @@ std::string buildStateJson(const char* mode, unsigned tick,
             << ",\"name\":\"" << jsonEscape(o.name)
             << "\",\"zone\":\"" << jsonEscape(o.zone)
             << "\",\"energy\":" << o.energy
-            << ",\"max\":" << o.maxEnergy << "}";
+            << ",\"max\":" << o.maxEnergy
+            << ",\"cpu\":" << o.cpu
+            << ",\"threads\":" << o.threads
+            << ",\"ppid\":" << o.ppid
+            << ",\"command\":\"" << jsonEscape(o.command) << "\"}";
     }
     out << "],\"relations\":[";
     for (std::size_t i = 0; i < relations.size(); ++i) {
@@ -189,9 +203,14 @@ void simulationLoop()
         for (const auto& [name, zone] : world.zones()) {
             zones.push_back({name, zone.get_energyYield()});
             for (Organism* o : world.organismsInZone(name)) {
-                organisms.push_back({o->id(), o->species().get_name(), name,
-                                     o->energy(),
-                                     o->species().get_reproductionThreshold()});
+                OrganismView view;
+                view.id = o->id();
+                view.name = o->species().get_name();
+                view.zone = name;
+                view.energy = o->energy();
+                view.maxEnergy = o->species().get_reproductionThreshold();
+                view.command = o->species().get_name();
+                organisms.push_back(std::move(view));
             }
         }
         publishState(buildStateJson("simulation", world.currentTick(),
@@ -205,11 +224,15 @@ void simulationLoop()
 // --- Mode observation : miroir de /proc, un snapshot par seconde.
 void observationLoop()
 {
-    ProcReader reader(15);
+    ProcReader reader(50);
     Observer observer;
     Interpreter interpreter;
     EventLog log;
     unsigned tick = 0;
+
+    const double clockHz = static_cast<double>(sysconf(_SC_CLK_TCK));
+    std::map<int, long> prevJiffies;
+    auto prevTime = std::chrono::steady_clock::now();
 
     while (true) {
         std::vector<ProcessInfo> snapshot = reader.snapshot();
@@ -217,6 +240,13 @@ void observationLoop()
             log.push(event, interpreter);
         }
         ++tick;
+
+        // %CPU = variation des jiffies CPU du processus, rapportée au temps
+        // écoulé (et à la fréquence d'horloge du noyau).
+        const auto now = std::chrono::steady_clock::now();
+        const double dt = std::chrono::duration<double>(now - prevTime).count();
+        prevTime = now;
+        std::map<int, long> currentJiffies;
 
         // Les zones sont les états réellement présents ; leur "yield" affiché
         // est la mémoire totale (MiB) des processus qui l'occupent.
@@ -238,9 +268,28 @@ void observationLoop()
             if (!zoneKnown) {
                 zones.push_back({proc.zoneName, proc.energy});
             }
-            organisms.push_back({proc.pid, proc.name, proc.zoneName,
-                                 proc.energy, maxEnergy});
+
+            currentJiffies[proc.pid] = proc.cpuJiffies;
+            double cpu = 0.0;
+            auto it = prevJiffies.find(proc.pid);
+            if (it != prevJiffies.end() && dt > 0.0 && clockHz > 0.0) {
+                cpu = (proc.cpuJiffies - it->second) / clockHz / dt * 100.0;
+                if (cpu < 0.0) cpu = 0.0;
+            }
+
+            OrganismView view;
+            view.id = proc.pid;
+            view.name = proc.name;
+            view.zone = proc.zoneName;
+            view.energy = proc.energy;
+            view.maxEnergy = maxEnergy;
+            view.cpu = cpu;
+            view.threads = proc.threads;
+            view.ppid = proc.ppid;
+            view.command = proc.command;
+            organisms.push_back(std::move(view));
         }
+        prevJiffies = std::move(currentJiffies);
 
         // Le graphe réel : l'arbre des processus (arête quand parent et
         // enfant sont tous deux visibles dans le top-N).
@@ -270,6 +319,8 @@ int main(int argc, char** argv)
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--observe") == 0) {
             observe = true;
+        } else if (std::strcmp(argv[i], "--allow-kill") == 0) {
+            g_allowKill = true;
         } else if (std::strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
             port = std::stoi(argv[++i]);
         }
@@ -285,8 +336,23 @@ int main(int argc, char** argv)
         res.set_content(g_stateJson, "application/json");
     });
 
-    std::cout << "Ecosys god view — http://localhost:" << port
-              << (observe ? "  (observing /proc)" : "  (simulation)") << "\n";
+    // Terminer un processus : désactivé sauf --allow-kill. Envoie SIGTERM
+    // (le noyau refusera si l'utilisateur n'en a pas le droit).
+    if (g_allowKill && observe) {
+        server.Post("/kill", [](const httplib::Request& req, httplib::Response& res) {
+            int pid = 0;
+            if (req.has_param("pid")) {
+                try { pid = std::stoi(req.get_param_value("pid")); } catch (...) { pid = 0; }
+            }
+            bool ok = pid > 1 && ::kill(static_cast<pid_t>(pid), SIGTERM) == 0;
+            res.set_content(std::string("{\"ok\":") + (ok ? "true" : "false") + "}",
+                            "application/json");
+        });
+    }
+
+    std::cout << "Ecosys monitor — http://localhost:" << port
+              << (observe ? "  (observing /proc)" : "  (simulation)")
+              << (g_allowKill ? "  [kill enabled]" : "") << "\n";
     if (!server.listen("127.0.0.1", port)) {
         std::cerr << "Could not bind port " << port << "\n";
         return 1;

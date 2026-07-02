@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <unordered_map>
+#include <unordered_set>
 
 #include <unistd.h>   // sysconf(_SC_PAGESIZE)
 
@@ -67,15 +69,23 @@ bool ProcReader::parseStatLine(const std::string& statContent, ProcessInfo& out)
     }
     out.zoneName = zoneFromState(state[0]);
 
-    long rssPages = 0;
+    // Champs stat par numéro (après state=3 et ppid=4 déjà lus) :
+    //   14 utime · 15 stime · 20 num_threads · 24 rss
     std::string skip;
-    for (int i = 0; i < 19; ++i) {
-        rest >> skip;
-    }
-    rest >> rssPages;
+    for (int i = 0; i < 9; ++i) rest >> skip;     // 5..13
+    long utime = 0, stime = 0;
+    rest >> utime >> stime;                        // 14, 15
+    for (int i = 0; i < 4; ++i) rest >> skip;      // 16..19
+    long threads = 0;
+    rest >> threads;                               // 20
+    for (int i = 0; i < 3; ++i) rest >> skip;      // 21..23
+    long rssPages = 0;
+    rest >> rssPages;                              // 24
     if (!rest) {
         return false;
     }
+    out.cpuJiffies = utime + stime;
+    out.threads = static_cast<int>(threads);
 
     static const long pageSize = sysconf(_SC_PAGESIZE);
     out.energy = static_cast<double>(rssPages) * static_cast<double>(pageSize)
@@ -101,18 +111,60 @@ std::vector<ProcessInfo> ProcReader::snapshot() const
         std::getline(statFile, content);
 
         ProcessInfo info;
-        if (parseStatLine(content, info)) {
-            processes.push_back(info);
+        if (!parseStatLine(content, info)) {
+            continue;
+        }
+
+        // Ligne de commande complète : /proc/pid/cmdline, arguments séparés
+        // par des octets nuls. Vide pour les threads noyau -> on retombe sur
+        // le nom entre crochets, comme le fait ps.
+        std::ifstream cmdFile(entry.path() / "cmdline", std::ios::binary);
+        std::string cmdline((std::istreambuf_iterator<char>(cmdFile)),
+                            std::istreambuf_iterator<char>());
+        std::replace(cmdline.begin(), cmdline.end(), '\0', ' ');
+        while (!cmdline.empty() && cmdline.back() == ' ') {
+            cmdline.pop_back();
+        }
+        info.command = cmdline.empty() ? "[" + info.name + "]" : cmdline;
+
+        processes.push_back(info);
+    }
+
+    // Sélection : le top-N par mémoire, PLUS tous leurs ancêtres (même petits),
+    // pour que l'arbre des processus reste connexe (le processus navigateur, le
+    // shell, systemd... sont légers mais tiennent l'arbre ensemble).
+    std::unordered_map<int, std::size_t> byPid;
+    for (std::size_t i = 0; i < processes.size(); ++i) {
+        byPid[processes[i].pid] = i;
+    }
+
+    std::vector<std::size_t> ranked(processes.size());
+    for (std::size_t i = 0; i < processes.size(); ++i) ranked[i] = i;
+    std::sort(ranked.begin(), ranked.end(),
+              [&](std::size_t a, std::size_t b) {
+                  return processes[a].energy > processes[b].energy;
+              });
+
+    std::unordered_set<int> keep;
+    for (std::size_t r = 0; r < ranked.size() && keep.size() < topN_; ++r) {
+        keep.insert(processes[ranked[r]].pid);
+    }
+    // Remonter chaque chaîne de parenté.
+    std::vector<int> seeds(keep.begin(), keep.end());
+    for (int pid : seeds) {
+        int cur = processes[byPid[pid]].ppid;
+        while (cur > 1 && byPid.count(cur) && !keep.count(cur)) {
+            keep.insert(cur);
+            cur = processes[byPid[cur]].ppid;
         }
     }
 
-    // Top-N par mémoire : la narration suit les organismes les plus massifs.
-    std::sort(processes.begin(), processes.end(),
-              [](const ProcessInfo& a, const ProcessInfo& b) {
-                  return a.energy > b.energy;
-              });
-    if (processes.size() > topN_) {
-        processes.resize(topN_);
+    std::vector<ProcessInfo> result;
+    result.reserve(keep.size());
+    for (std::size_t r : ranked) {
+        if (keep.count(processes[r].pid)) {
+            result.push_back(processes[r]);
+        }
     }
-    return processes;
+    return result;
 }
