@@ -8,6 +8,9 @@
 
     class World;
     class Organism {
+        private:
+            int id_ = 0;   // identité stable, attribuée par World à l'ajout
+
         protected:
             bool alive_ = true;
             std::shared_ptr<const Species> species_;
@@ -33,5 +36,7 @@
             const Species& species() const;
             const std::string& zoneName() const;
             void setZone(std::string zoneName);
+            int id() const;
+            void setId(int id);
     };
 #endif

@@ -39,3 +39,13 @@ bool Organism::isAlive() const
 {
     return alive_ && energy_ > 0.0;
 }
+
+int Organism::id() const
+{
+    return id_;
+}
+
+void Organism::setId(int id)
+{
+    id_ = id;
+}

@@ -12,6 +12,7 @@ void World::addZone(Zone zone)
 
 void World::addOrganism(std::unique_ptr<Organism> organism)
 {
+    organism->setId(++nextId_);
     organisms_.push_back(std::move(organism));
 }
 
@@ -98,7 +99,7 @@ std::vector<Event> World::tick()
         }
     }
     for (auto& child : newborns) {
-        organisms_.push_back(std::move(child));
+        addOrganism(std::move(child));   // passe par l'attribution d'id
     }
 
     // 5. Mort : on signale les morts par famine, puis on les retire.

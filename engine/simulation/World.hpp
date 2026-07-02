@@ -15,6 +15,7 @@ class World {
         std::map<std::string, Zone> zones_;
         std::mt19937 rng_;
         unsigned tick_ = 0;
+        int nextId_ = 0;   // attribution des identités stables des organismes
 
     public:
         explicit World(unsigned seed = 12345);
