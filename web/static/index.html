@@ -211,6 +211,14 @@ const STATE={ running:'#5ef2a8', sleeping:'#4aa8ff', idle:'#7b8698',
   grasslands:'#6ee7a8', shoreline:'#4aa8ff', desert:'#ffcf7a' };
 function stateColor(z){ return STATE[z]||'#7b8698'; }
 
+// En simulation, la couleur porte l'ESPÈCE (herbivore / éclaireur / prédateur),
+// pas le biome : c'est ce qui distingue les créatures à l'œil. En observation,
+// elle porte l'état du processus.
+const SPECIES={ Grazer:'#6ee7a8', Explorer:'#5ad1ff', Predator:'#ff6f5e' };
+function speciesColor(name){ return SPECIES[name] || '#c9a4ff'; }
+function nodeColor(n){ return mode==='simulation' ? speciesColor(n.name) : stateColor(n.state); }
+function rawColor(p){ return mode==='simulation' ? speciesColor(p.name) : stateColor(p.zone); }
+
 // ---------- état ----------
 const nodes=new Map();           // id -> node d'affichage (process ou groupe)
 let edges=[];                    // {from,to} lignée (ids d'affichage)
@@ -343,11 +351,20 @@ function renderVitals(){
   const totMem=procs.reduce((a,p)=>a+p.energy,0);
   document.getElementById('vProc').textContent=procs.length;
   document.getElementById('vMem').textContent=fmtMem(totMem);
-  const counts={};
-  for(const p of procs) counts[p.zone]=(counts[p.zone]||0)+1;
-  const order=['running','sleeping','idle','deep-sleep','zombie','stopped'];
-  document.getElementById('states').innerHTML=order.filter(k=>counts[k])
-    .map(k=>`<span><i style="background:${stateColor(k)};box-shadow:0 0 7px ${stateColor(k)}"></i>${k.replace('-',' ')} ${counts[k]}</span>`).join('');
+  if(mode==='simulation'){
+    // légende par ESPÈCE : c'est la clé de lecture de l'écosystème
+    const counts={};
+    for(const p of procs) counts[p.name]=(counts[p.name]||0)+1;
+    const order=['Grazer','Explorer','Predator'];
+    document.getElementById('states').innerHTML=order.filter(k=>counts[k])
+      .map(k=>`<span><i style="background:${speciesColor(k)};box-shadow:0 0 7px ${speciesColor(k)}"></i>${k} ${counts[k]}</span>`).join('');
+  } else {
+    const counts={};
+    for(const p of procs) counts[p.zone]=(counts[p.zone]||0)+1;
+    const order=['running','sleeping','idle','deep-sleep','zombie','stopped'];
+    document.getElementById('states').innerHTML=order.filter(k=>counts[k])
+      .map(k=>`<span><i style="background:${stateColor(k)};box-shadow:0 0 7px ${stateColor(k)}"></i>${k.replace('-',' ')} ${counts[k]}</span>`).join('');
+  }
 }
 function lineageSet(id){
   const set=new Set(); if(id==null) return set;
@@ -372,10 +389,10 @@ function renderList(){
     const row=document.createElement('div');
     row.className='proc'+(p.id===sel?' sel':'')+((!match||!inLin)?' dim':'');
     row.innerHTML=
-      `<span class="tag" style="background:${stateColor(p.zone)};box-shadow:0 0 7px ${stateColor(p.zone)}"></span>`+
+      `<span class="tag" style="background:${rawColor(p)};box-shadow:0 0 7px ${rawColor(p)}"></span>`+
       `<span class="nm">${p.name} <small>${(p.cpu||0)>=1?Math.round(p.cpu)+'%':''}</small></span>`+
       `<span class="mem">${fmtMem(p.energy)}</span>`+
-      `<span class="bar"><i style="width:${Math.max(3,100*p.energy/maxMem)}%;background:${stateColor(p.zone)};box-shadow:0 0 6px ${stateColor(p.zone)}"></i></span>`;
+      `<span class="bar"><i style="width:${Math.max(3,100*p.energy/maxMem)}%;background:${rawColor(p)};box-shadow:0 0 6px ${rawColor(p)}"></i></span>`;
     row.onmouseenter=()=>hover=p.id; row.onmouseleave=()=>hover=null;
     row.onclick=()=>select(p.id);
     el.appendChild(row);
@@ -510,7 +527,7 @@ function cellOutline(n,r,t){
   ctx.closePath();
 }
 function drawCell(n,t,a){
-  const col=stateColor(n.state);
+  const col=nodeColor(n);
   const cpuF=Math.min((n.cpu||0)/100,2)/2;                 // 0..1
   const pulse=1 + (0.03+cpuF*0.09)*Math.sin(t*(2+cpuF*4)+n.id);
   const r=n.r*pulse;
@@ -633,9 +650,9 @@ function frame(now){
     const base = lin ? 0.10 : 0.34;                       // reste esquissé même hors lignée
     const shimmer = base * (0.85 + 0.15*Math.sin(t*1.4 + a.id));
     const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
-    grad.addColorStop(0, hexA(stateColor(a.state), shimmer));
-    grad.addColorStop(0.5, hexA(mix(stateColor(a.state), stateColor(b.state), 0.5), shimmer*0.7));
-    grad.addColorStop(1, hexA(stateColor(b.state), shimmer));
+    grad.addColorStop(0, hexA(nodeColor(a), shimmer));
+    grad.addColorStop(0.5, hexA(mix(nodeColor(a), nodeColor(b), 0.5), shimmer*0.7));
+    grad.addColorStop(1, hexA(nodeColor(b), shimmer));
     drawBranch(a, b, grad, 1.3);
   }
   ctx.restore();
@@ -654,7 +671,7 @@ function frame(now){
       const u=(t*0.32 + e.from*0.013) % 1, mt=1-u;
       const px=mt*mt*par.x+2*mt*u*kx+u*u*chi.x;
       const py=mt*mt*par.y+2*mt*u*ky+u*u*chi.y;
-      const col=litEdge?'#9ffbe8':stateColor(chi.state);
+      const col=litEdge?'#9ffbe8':nodeColor(chi);
       ctx.fillStyle=hexA(col, litEdge?0.9:0.3);
       ctx.beginPath(); ctx.arc(px,py, litEdge?2.2:1.3, 0,7); ctx.fill();
     }
@@ -789,7 +806,7 @@ function renderCard(){
   document.getElementById('cBody').innerHTML=
       kv(mode==='observation'?'pid':'id', n.id)
     + (mode==='observation'?kv('parent', parent?`${parent.name} · ${n.ppid}`:n.ppid):'')
-    + kv('state', n.state)
+    + (mode==='observation'?kv('state', n.state):kv('species', n.name)+kv('biome', n.state))
     + kv('memory', fmtMem(n.mem))
     + (mode==='observation'?kv('cpu', n.cpu.toFixed(1)+' %'):kv('energy',n.mem.toFixed(1)))
     + (mode==='observation'?kv('threads', n.threads):'')
