@@ -63,6 +63,27 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tui/main.cpp)
     target_compile_options(ecosys-tui PRIVATE -Wall -Wextra)
 endif()
 
+# --- Dashboard web (vue Dieu) ------------------------------------------------
+# Serveur HTTP embarqué (cpp-httplib, header-only, récupéré par CMake) qui
+# sert web/static/ et streame l'état du monde en JSON sur /state.
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/web/main.cpp)
+    include(FetchContent)
+    set(HTTPLIB_REQUIRE_OPENSSL OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(httplib
+        GIT_REPOSITORY https://github.com/yhirose/cpp-httplib
+        GIT_TAG v0.15.3
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(httplib)
+
+    find_package(Threads REQUIRED)
+    add_executable(ecosys-web web/main.cpp)
+    target_link_libraries(ecosys-web PRIVATE ecosys_engine httplib::httplib Threads::Threads)
+    target_compile_options(ecosys-web PRIVATE -Wall -Wextra)
+    # Le frontend est servi depuis les sources : modifiable sans recompiler.
+    target_compile_definitions(ecosys-web PRIVATE
+        ECOSYS_WEB_STATIC="${CMAKE_CURRENT_SOURCE_DIR}/web/static")
+endif()
+
 # --- Tests ------------------------------------------------------------------
 # S'active tout seul dès que tests/engine_tests.cpp existera.
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/engine_tests.cpp)

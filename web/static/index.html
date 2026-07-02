@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ecosys — god view</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #05070d;
+               font-family: "Segoe UI", system-ui, sans-serif; color: #cfd8e3; }
+  canvas { display: block; }
+  #hud { position: fixed; top: 0; left: 0; right: 0; padding: 10px 16px;
+         display: flex; align-items: baseline; gap: 18px; pointer-events: none;
+         text-shadow: 0 1px 4px #000; }
+  #hud .title { font-size: 20px; font-weight: 600; color: #8ee6a1; }
+  #hud .stat { font-size: 13px; opacity: .8; }
+  #hud .mode { font-size: 11px; padding: 2px 8px; border: 1px solid #3a4a5f;
+               border-radius: 10px; letter-spacing: .08em; text-transform: uppercase; }
+  #feed { position: fixed; left: 14px; bottom: 12px; font-size: 12.5px;
+          pointer-events: none; }
+  #feed div { margin-top: 3px; text-shadow: 0 1px 3px #000; transition: opacity .6s; }
+  #panel { position: fixed; right: 14px; top: 52px; width: 230px; display: none;
+           background: rgba(10,14,22,.88);
+           border: 1px solid #2b3950; border-radius: 10px; padding: 12px 14px;
+           font-size: 13px; backdrop-filter: blur(4px); }
+  #panel h3 { margin: 0 0 6px; font-size: 14px; color: #8ee6a1; }
+  #panel .row { display: flex; justify-content: space-between; margin: 3px 0; }
+  #panel .row span:first-child { opacity: .6; }
+  #panel .close { position: absolute; top: 6px; right: 10px; cursor: pointer;
+                  opacity: .5; }
+  #tip { position: fixed; display: none; padding: 3px 8px; font-size: 12px;
+         background: rgba(10,14,22,.9); border: 1px solid #2b3950;
+         border-radius: 6px; pointer-events: none; }
+</style>
+</head>
+<body>
+<canvas id="world"></canvas>
+<div id="hud">
+  <span class="title">ECOSYS 🌱</span>
+  <span class="mode" id="mode">…</span>
+  <span class="stat" id="tick"></span>
+  <span class="stat" id="pop"></span>
+</div>
+<div id="feed"></div>
+<div id="panel"><span class="close" onclick="selection=null">✕</span><div id="panelBody"></div></div>
+<div id="tip"></div>
+
+<script>
+'use strict';
+const canvas = document.getElementById('world');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+addEventListener('resize', resize); resize();
+
+// ---------- utilitaires ----------
+function hash(s) { let h = 2166136261; for (const c of s) { h ^= c.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+function hue(s) { return hash(s) % 360; }
+function rand(seed) { let x = seed || 1; return () => { x = Math.imul(x ^ (x >>> 15), 2246822519); x ^= x >>> 13; return ((x >>> 0) / 4294967296); }; }
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// ---------- état du monde côté client ----------
+const zones = new Map();      // name -> {x,y,r, targetR, hue, phase}
+const creatures = new Map();  // id -> creature
+let mode = '…', tick = 0, population = 0;
+let lastSeq = 0;
+const feedEl = document.getElementById('feed');
+let selection = null;         // {kind:'creature'|'zone', key}
+
+function zoneLayout() {
+  // Les îles se répartissent sur une ellipse autour du centre.
+  const names = [...zones.keys()].sort();
+  const cx = W / 2, cy = H / 2 + 10;
+  names.forEach((name, i) => {
+    const z = zones.get(name);
+    // Départ à l'horizontale : deux îles se placent gauche/droite, pas empilées.
+    const a = (i / names.length) * Math.PI * 2;
+    const spread = names.length === 1 ? 0 : 1;
+    z.tx = cx + Math.cos(a) * W * 0.26 * spread;
+    z.ty = cy + Math.sin(a) * H * 0.20 * spread;
+    // Teintes espacées par angle d'or : des îles toujours bien distinctes.
+    z.hue = (i * 137.5 + 90) % 360;
+    if (z.x === undefined) { z.x = z.tx; z.y = z.ty; }
+  });
+}
+
+function ensureZone(name) {
+  if (!zones.has(name)) {
+    zones.set(name, { name, r: 40, targetR: 60, hue: hue(name),
+                      phase: (hash(name) % 100) / 100 * Math.PI * 2, yield: 0 });
+    zoneLayout();
+  }
+  return zones.get(name);
+}
+
+function spawnCreature(o) {
+  const z = ensureZone(o.zone);
+  const rnd = rand(o.id + 7);
+  return {
+    id: o.id, name: o.name, zone: o.zone, energy: o.energy, max: o.max,
+    hue: hue(o.name),
+    x: z.x + (rnd() - .5) * z.r, y: z.y + (rnd() - .5) * z.r,
+    wx: 0, wy: 0, wt: 0,            // cible d'errance
+    scale: 0,                        // pop-in de naissance
+    dying: 0,                        // fondu de mort (0 = vivant)
+    blink: rnd() * 4 + 2,
+    seed: rnd,
+    trail: [],
+  };
+}
+
+// ---------- synchronisation avec le serveur ----------
+async function poll() {
+  try {
+    const s = await (await fetch('/state')).json();
+    if (!s.zones) return;
+    mode = s.mode; tick = s.tick; population = s.population;
+
+    const seen = new Set();
+    for (const zv of s.zones) { const z = ensureZone(zv.name); z.yield = zv.yield; seen.add(zv.name); }
+    for (const name of [...zones.keys()]) if (!seen.has(name)) zones.delete(name);
+    zoneLayout();
+
+    const alive = new Set();
+    for (const o of s.organisms) {
+      alive.add(o.id);
+      let c = creatures.get(o.id);
+      if (!c) { creatures.set(o.id, spawnCreature(o)); continue; }
+      if (c.zone !== o.zone) { c.zone = o.zone; c.wt = 0; }   // migration
+      c.energy = o.energy; c.max = o.max; c.dying = 0;
+    }
+    for (const c of creatures.values())
+      if (!alive.has(c.id) && c.dying === 0) c.dying = 0.0001;
+
+    // Population de chaque île -> taille cible.
+    for (const z of zones.values()) {
+      let n = 0;
+      for (const c of creatures.values()) if (c.zone === z.name && !c.dying) n++;
+      z.targetR = 46 + Math.sqrt(n) * 26;
+    }
+
+    // Flux d'évènements (chaque seq une seule fois).
+    for (const e of s.events) {
+      if (e.seq <= lastSeq) continue;
+      lastSeq = e.seq;
+      const icons = { born: '🌱', reproduced: '🐣', thrived: '✨',
+                      migrated: '🧭', competed: '⚔️', died: '💀', starved: '💀' };
+      const colors = { born: '#7be08a', reproduced: '#7be08a', thrived: '#b8f0c0',
+                       migrated: '#7cd6e6', competed: '#e6cf7c', died: '#e07b7b',
+                       starved: '#e07b7b' };
+      const div = document.createElement('div');
+      div.textContent = (icons[e.type] || '·') + ' ' + e.text;
+      div.style.color = colors[e.type] || '#cfd8e3';
+      feedEl.appendChild(div);
+      while (feedEl.children.length > 7) feedEl.removeChild(feedEl.firstChild);
+      [...feedEl.children].forEach((el, i, all) =>
+        el.style.opacity = 0.35 + 0.65 * (i + 1) / all.length);
+    }
+
+    document.getElementById('mode').textContent = mode;
+    document.getElementById('tick').textContent = 'tick ' + tick;
+    document.getElementById('pop').textContent = 'population ' + population;
+  } catch (err) { /* serveur pas encore prêt : on retentera */ }
+}
+setInterval(poll, 500); poll();
+
+// ---------- rendu ----------
+const stars = [...Array(140)].map(() => ({ x: Math.random(), y: Math.random(),
+                                           s: Math.random() * 1.4 + .3 }));
+
+function blobPath(z, t) {
+  ctx.beginPath();
+  const steps = 44;
+  for (let i = 0; i <= steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    const wob = 1 + 0.07 * Math.sin(3 * a + t * 0.6 + z.phase)
+                  + 0.045 * Math.sin(5 * a - t * 0.35 + z.phase * 2);
+    const r = z.r * wob;
+    const x = z.x + Math.cos(a) * r, y = z.y + Math.sin(a) * r * 0.82;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.closePath();
+}
+
+function drawZone(z, t) {
+  z.r = lerp(z.r, z.targetR, 0.04);
+  z.x = lerp(z.x, z.tx, 0.04); z.y = lerp(z.y, z.ty, 0.04);
+  const g = ctx.createRadialGradient(z.x, z.y, z.r * 0.15, z.x, z.y, z.r * 1.15);
+  g.addColorStop(0, `hsla(${z.hue},45%,26%,.95)`);
+  g.addColorStop(1, `hsla(${z.hue},55%,12%,.85)`);
+  ctx.save();
+  ctx.shadowColor = `hsla(${z.hue},70%,45%,.5)`; ctx.shadowBlur = 34;
+  blobPath(z, t); ctx.fillStyle = g; ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = `hsla(${z.hue},60%,55%,.35)`; ctx.lineWidth = 1.4;
+  blobPath(z, t); ctx.stroke();
+  ctx.fillStyle = 'rgba(220,230,240,.75)'; ctx.font = '13px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText(z.name, z.x, z.y - z.r * 0.82 - 14);
+  ctx.fillStyle = 'rgba(220,230,240,.4)'; ctx.font = '11px system-ui';
+  const unit = mode === 'observation' ? ' MiB' : ' yield';
+  ctx.fillText((Math.round(z.yield * 10) / 10) + unit, z.x, z.y - z.r * 0.82);
+}
+
+function drawCreature(c, t, dt) {
+  const z = zones.get(c.zone);
+  if (!z) return;
+  // Errance : nouvelle cible dans l'île de temps en temps.
+  c.wt -= dt;
+  if (c.wt <= 0) {
+    const a = c.seed() * Math.PI * 2, d = c.seed() * z.r * 0.62;
+    c.wx = z.x + Math.cos(a) * d; c.wy = z.y + Math.sin(a) * d * 0.8;
+    c.wt = 1.5 + c.seed() * 3;
+  }
+  const speed = Math.hypot(c.wx - c.x, c.wy - c.y) > z.r ? 0.07 : 0.028;
+  c.x = lerp(c.x, c.wx, speed); c.y = lerp(c.y, c.wy, speed);
+
+  // Traînée de migration.
+  if (speed > 0.03) c.trail.push({ x: c.x, y: c.y, a: 0.5 });
+  c.trail = c.trail.filter(p => (p.a -= dt * 0.6) > 0);
+  for (const p of c.trail) {
+    ctx.fillStyle = `hsla(${c.hue},80%,70%,${p.a})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 2, 0, 7); ctx.fill();
+  }
+
+  if (c.dying) { c.dying += dt * 1.4; if (c.dying >= 1) { creatures.delete(c.id); return; } }
+  c.scale = Math.min(1, c.scale + dt * 2.2);
+
+  const ratio = Math.max(0.06, Math.min(1, c.energy / (c.max || 1)));
+  const size = (5 + 9 * Math.sqrt(ratio)) * c.scale * (1 - (c.dying || 0));
+  const pulse = 1 + 0.07 * Math.sin(t * 3 + c.id);
+  const alpha = 1 - (c.dying || 0);
+
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  ctx.shadowColor = `hsla(${c.hue},85%,65%,${0.7 * alpha})`;
+  ctx.shadowBlur = 12 * ratio + 4;
+  ctx.fillStyle = `hsla(${c.hue},75%,${40 + 25 * ratio}%,${alpha})`;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, size * pulse, size * 0.82 * pulse, 0, 0, 7);
+  ctx.fill();
+  // Deux yeux, avec clignement.
+  c.blink -= dt; if (c.blink < -0.12) c.blink = 2 + c.seed() * 4;
+  const eye = c.blink < 0 ? 0.3 : 1.6;
+  ctx.shadowBlur = 0; ctx.fillStyle = `rgba(10,14,20,${alpha})`;
+  ctx.beginPath(); ctx.ellipse(-size * .3, -size * .15, 1.6, eye, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse( size * .3, -size * .15, 1.6, eye, 0, 0, 7); ctx.fill();
+  ctx.restore();
+  c.drawSize = size;   // pour le survol/clic
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const t = now / 1000;
+  ctx.clearRect(0, 0, W, H);
+  for (const s of stars) {
+    ctx.fillStyle = `rgba(160,190,230,${0.25 + 0.2 * Math.sin(t + s.x * 40)})`;
+    ctx.fillRect(s.x * W, s.y * H, s.s, s.s);
+  }
+  for (const z of zones.values()) drawZone(z, t);
+  for (const c of creatures.values()) drawCreature(c, t, dt);
+  drawPanel();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ---------- inspection ----------
+const tip = document.getElementById('tip');
+function creatureAt(x, y) {
+  let best = null, bd = 18;
+  for (const c of creatures.values()) {
+    const d = Math.hypot(c.x - x, c.y - y) - (c.drawSize || 6);
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best;
+}
+function zoneAt(x, y) {
+  for (const z of zones.values())
+    if (Math.hypot((z.x - x), (z.y - y) / 0.82) < z.r) return z;
+  return null;
+}
+canvas.addEventListener('mousemove', e => {
+  const c = creatureAt(e.clientX, e.clientY);
+  if (c) {
+    tip.style.display = 'block';
+    tip.style.left = (e.clientX + 12) + 'px'; tip.style.top = (e.clientY + 8) + 'px';
+    tip.textContent = `${c.name} · ${Math.round(c.energy * 10) / 10}`;
+    canvas.style.cursor = 'pointer';
+  } else { tip.style.display = 'none'; canvas.style.cursor = 'default'; }
+});
+canvas.addEventListener('click', e => {
+  const c = creatureAt(e.clientX, e.clientY);
+  if (c) { selection = { kind: 'creature', key: c.id }; return; }
+  const z = zoneAt(e.clientX, e.clientY);
+  selection = z ? { kind: 'zone', key: z.name } : null;
+});
+
+const panel = document.getElementById('panel');
+const panelBody = document.getElementById('panelBody');
+function row(k, v) { return `<div class="row"><span>${k}</span><span>${v}</span></div>`; }
+function drawPanel() {
+  if (!selection) { panel.style.display = 'none'; return; }
+  let html = '';
+  if (selection.kind === 'creature') {
+    const c = creatures.get(selection.key);
+    if (!c) { selection = null; return; }
+    html = `<h3>${c.name}</h3>`
+         + row(mode === 'observation' ? 'pid' : 'id', c.id)
+         + row('zone', c.zone)
+         + row('energy', Math.round(c.energy * 100) / 100 +
+               (mode === 'observation' ? ' MiB' : ''))
+         + (mode === 'simulation' ? row('repro. at', c.max) : '');
+  } else {
+    const z = zones.get(selection.key);
+    if (!z) { selection = null; return; }
+    const inhabitants = [...creatures.values()].filter(c => c.zone === z.name && !c.dying);
+    html = `<h3>${z.name}</h3>`
+         + row(mode === 'observation' ? 'total memory' : 'yield',
+               Math.round(z.yield * 10) / 10)
+         + row('inhabitants', inhabitants.length)
+         + inhabitants.slice(0, 8).map(c =>
+             row('· ' + c.name, Math.round(c.energy * 10) / 10)).join('');
+  }
+  panelBody.innerHTML = html;
+  panel.style.display = 'block';
+}
+</script>
+</body>
+</html>
