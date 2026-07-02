@@ -34,7 +34,8 @@ namespace {
 
 std::mutex g_stateMutex;
 std::string g_stateJson = "{}";
-bool g_allowKill = false;   // /kill n'existe que si --allow-kill
+bool g_allowKill = false;      // /kill n'existe que si --allow-kill
+std::size_t g_topN = 50;       // processus suivis (--top N / --all)
 
 void publishState(std::string json)
 {
@@ -224,7 +225,7 @@ void simulationLoop()
 // --- Mode observation : miroir de /proc, un snapshot par seconde.
 void observationLoop()
 {
-    ProcReader reader(50);
+    ProcReader reader(g_topN);
     Observer observer;
     Interpreter interpreter;
     EventLog log;
@@ -321,6 +322,10 @@ int main(int argc, char** argv)
             observe = true;
         } else if (std::strcmp(argv[i], "--allow-kill") == 0) {
             g_allowKill = true;
+        } else if (std::strcmp(argv[i], "--all") == 0) {
+            g_topN = static_cast<std::size_t>(-1);   // tous les processus
+        } else if (std::strcmp(argv[i], "--top") == 0 && i + 1 < argc) {
+            g_topN = static_cast<std::size_t>(std::stoul(argv[++i]));
         } else if (std::strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
             port = std::stoi(argv[++i]);
         }

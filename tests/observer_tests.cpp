@@ -25,7 +25,9 @@ static bool hasEvent(const std::vector<Event>& events, EventType type,
 
 static ProcessInfo proc(int pid, std::string name, std::string zone, double energy)
 {
-    return ProcessInfo{pid, 0, std::move(name), std::move(zone), energy};
+    ProcessInfo p;
+    p.pid = pid; p.name = std::move(name); p.zoneName = std::move(zone); p.energy = energy;
+    return p;
 }
 
 static void test_first_snapshot_is_silent_baseline()
