@@ -283,7 +283,7 @@ function buildDisplay(){
       n={id:s.id,x:W/2+Math.cos(ang)*rad,y:H/2+Math.sin(ang)*rad,r:6,tr:6,alpha:0,dying:0}; nodes.set(s.id,n); }
     Object.assign(n,{name:s.name,cmd:s.cmd,state:s.state,mem:s.mem,cpu:s.cpu,threads:s.threads,
       ppid:s.ppid,isGroup:s.isGroup,count:s.count||0,groupKey:s.groupKey,max:s.max||1});
-    n.tr=Math.min(64, 5+Math.sqrt(Math.max(n.mem,0))*1.6);
+    n.tr=Math.min(42, 5+Math.sqrt(Math.max(n.mem,0))*1.45);
     n.dying=0;
   }
   for(const n of nodes.values()) if(!seen.has(n.id) && !n.dying) n.dying=0.0001;
@@ -374,15 +374,17 @@ function computeLayout(){
   // espacement adaptatif : chaque anneau doit offrir assez de circonférence
   // pour ses occupants (sinon ça se chevauche). L'arbre peut dépasser l'écran
   // -> on dé-zoome pour le cadrer, et on explore à la molette.
-  const countByDepth=new Map();
-  for(const [,d] of depth) countByDepth.set(d,(countByDepth.get(d)||0)+1);
-  const minSep=20, capC=45;   // un anneau ultra-dense (threads noyau) ne fait
-  ringGap=Math.min(W,H)*0.15;  // pas exploser l'échelle : il reste un essaim
-  for(const [d,c] of countByDepth){
-    const need=Math.min(c,capC)*minSep/(2*Math.PI*Math.max(d,1));
+  // On dimensionne chaque orbite pour que la somme des diamètres des astres
+  // qu'elle porte tienne dans sa circonférence -> ils ne se touchent pas.
+  const cap=42, gap=22;
+  const sumByDepth=new Map();
+  for(const n of live){ const d=depth.get(n.id)||1;
+    sumByDepth.set(d,(sumByDepth.get(d)||0) + 2*Math.min(n.tr,cap) + gap); }
+  ringGap=2*cap+18;                    // plancher : pas de collision entre anneaux
+  for(const [d,sum] of sumByDepth){
+    const need=sum/(2*Math.PI*Math.max(d,1));
     if(need>ringGap) ringGap=need;
   }
-  const cap=Math.min(56,Math.max(6,ringGap*0.32));
   const place=(id,a0,a1)=>{
     const n=nodes.get(id); if(!n) return;
     const mid=(a0+a1)/2, d=depth.get(id)||1;
@@ -400,6 +402,25 @@ function computeLayout(){
   for(const r of roots){
     const frac=0.5*(weight.get(r.id)/total) + 0.5/nr;
     const span=2*Math.PI*frac; place(r.id,a,a+span); a+=span;
+  }
+
+  // relaxation angulaire : on écarte deux astres trop proches sur une orbite
+  const byDepth=new Map();
+  for(const n of live){ if(n.baseAngle==null) continue;
+    if(!byDepth.has(n.depth)) byDepth.set(n.depth,[]);
+    byDepth.get(n.depth).push(n); }
+  for(const [d,arr] of byDepth){
+    if(arr.length<2) continue;
+    const R=Math.max(d*ringGap,1);
+    arr.sort((x,y)=>x.baseAngle-y.baseAngle);
+    for(let it=0; it<9; it++){
+      for(let i=0;i<arr.length;i++){
+        const x=arr[i], y=arr[(i+1)%arr.length];
+        let diff=y.baseAngle-x.baseAngle + (i===arr.length-1?2*Math.PI:0);
+        const need=(Math.min(x.tr,cap)+Math.min(y.tr,cap)+gap)/R;
+        if(diff<need){ const push=(need-diff)/2; x.baseAngle-=push; y.baseAngle+=push; }
+      }
+    }
   }
 
   // cadrage : vue d'ensemble aérée, centrée, jamais minuscule
@@ -452,7 +473,7 @@ function drawCell(n,t,a){
   }
 
   // couronne / halo
-  const gr=r*(2.1+cpuF*1.8);
+  const gr=r*(1.7+cpuF*1.6);
   ctx.save(); ctx.globalCompositeOperation='lighter';
   const halo=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,gr);
   halo.addColorStop(0,hexA(col,(0.24+cpuF*0.45)*a));
