@@ -143,8 +143,9 @@ cmake -S . -B build && cmake --build build
 ./build/ecosys            # simulation mode (plain narration)
 ./build/ecosys-tui        # simulation mode, full-terminal ecosystem view
 ./build/ecosys-observe    # observation mode (mirrors /proc)
-./build/ecosys-web        # god view at http://localhost:8080 (simulation)
-./build/ecosys-web --observe   # god view of your real Linux system
+./build/ecosys-web --observe          # living system monitor at http://localhost:8080
+./build/ecosys-web --observe --allow-kill   # …and enable process termination
+./build/ecosys-web                    # same view, running the simulation instead
 ctest --test-dir build    # run the test suites
 ```
 
@@ -153,18 +154,26 @@ automatically by CMake) shows each zone as a panel with its organisms and
 their energy bars — a full bar means ready to reproduce — plus a color-coded
 event feed.
 
-The web dashboard is a **god view**: a living planet you orbit with the mouse.
-Zones are continents on its surface, organisms are creatures that crawl across
-them, pulse with energy, glide to another continent when they migrate, and
-fade away when they die. Relationships are drawn as threads between creatures:
-shimmering green arcs for lineage (parent → child, or the real process tree in
-observe mode), faint red for competition. Drag to orbit, scroll to zoom, hover
-a creature for a quick look, click it for details including its family. In
-`--observe` mode the continents are process states (`running`, `sleeping`,
-`zombie`…) and the creatures are your machine's actual processes, sized by
-memory. The C++ server (cpp-httplib, fetched by CMake) streams world state as
-JSON; the frontend is a single page built on [three.js](https://threejs.org)
-(vendored locally under `web/static/vendor/`, no CDN at runtime).
+The web dashboard is a **living system monitor** — `htop` reimagined as an
+ecosystem. Every process is a cell in a force-directed constellation:
+
+- **size = memory (RSS)** — the biggest consumers dominate the field
+- **glow = CPU** — busy processes pulse and flare; idle ones stay dim
+- **hue = state** — running (green), sleeping (blue), zombie (coral)…
+- **threads = the process tree (PPID)** — parents wired to children, so
+  `systemd`, your shell and the browser process become visible hubs (memory
+  ranking keeps the top ~50, and their ancestors are pulled in to keep the
+  tree whole)
+
+The left rail is the instrument side: live vitals, a search filter, sortable
+columns (memory / cpu / name) and a process list wired to the graph. Click any
+cell to **trace its lineage** — its whole ancestry and descendancy light up as
+bioluminescent threads while everything else fades to black — and to open an
+inspection card (pid, parent, state, memory, cpu, threads, full command line).
+With `--allow-kill` the card gains a guarded **Terminate** button (SIGTERM,
+two-step confirm). The C++ server (cpp-httplib, fetched by CMake) streams the
+whole state as JSON on `/state`; the frontend is a single dependency-free
+Canvas page.
 
 ---
 
