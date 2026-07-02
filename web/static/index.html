@@ -78,6 +78,11 @@
         text-transform:uppercase;color:var(--ink-dim);pointer-events:none}
   #legendCpu{position:absolute;left:16px;bottom:14px;font-size:10px;color:var(--ink-dim);
              letter-spacing:.1em;pointer-events:none}
+  #regroup{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:none;
+           z-index:6;cursor:pointer;font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+           color:var(--sel);border:1px solid var(--hair);border-radius:14px;padding:5px 14px;
+           background:var(--panel);backdrop-filter:blur(4px)}
+  #regroup:hover{border-color:var(--sel)}
 
   /* ---------- fiche ---------- */
   #card{position:absolute;top:16px;right:16px;width:288px;background:var(--panel);
@@ -134,7 +139,8 @@
   <main id="scene">
     <canvas id="cv"></canvas>
     <div id="legendCpu">◍ size = memory · glow = cpu · hue = state</div>
-    <div id="hint">click a cell · trace its lineage</div>
+    <div id="hint">click a cell · trace its lineage · click a ×N colony to expand</div>
+    <div id="regroup">⟲ regroup</div>
     <div id="card">
       <div class="ch"><h3 id="cName">—</h3><span class="x" id="cClose">✕</span></div>
       <div class="cb" id="cBody"></div>
@@ -160,11 +166,20 @@ const STATE={ running:'#5ef2a8', sleeping:'#4aa8ff', idle:'#7b8698',
 function stateColor(z){ return STATE[z]||'#7b8698'; }
 
 // ---------- état ----------
-const nodes=new Map();           // id -> node
-let edges=[];                    // {from,to} lineage
+const nodes=new Map();           // id -> node d'affichage (process ou groupe)
+let edges=[];                    // {from,to} lignée (ids d'affichage)
 let mode='—', canKill=false;
 let sel=null, hover=null, sortKey='mem', query='';
 const childrenOf=new Map(), parentOf=new Map();
+
+// données brutes (la liste montre TOUS les processus) + repli des fratries
+let procs=[];
+let procById=new Map();
+const expanded=new Set();        // clés de groupes dépliés
+const groupKeyToId=new Map();    // clé de groupe -> id négatif stable
+const pidToGroupKey=new Map();   // pid replié -> clé de son groupe
+let groupIdSeq=-1;               // ids de groupe : négatifs (jamais un pid)
+const GROUP_MIN=6;               // taille min d'une fratrie homonyme pour replier
 
 // init taille du canvas maintenant que l'état est déclaré (computeLayout y accède)
 new ResizeObserver(resize).observe(document.getElementById('scene')); resize();
@@ -180,43 +195,90 @@ async function poll(){
     document.getElementById('sub').textContent =
       mode==='observation' ? 'this machine · '+s.population+' processes' : 'sandbox simulation';
 
-    const seen=new Set();
-    for(const o of s.organisms){
-      seen.add(o.id);
-      let n=nodes.get(o.id);
-      if(!n){
-        const seed=hashStr(o.id), ang=(seed%628)/100, rad=40+((seed>>3)%120);
-        n={ id:o.id, x:W/2+Math.cos(ang)*rad, y:H/2+Math.sin(ang)*rad, vx:0, vy:0,
-            r:6, tr:6, alpha:0, dying:0 };
-        nodes.set(o.id,n);
-      }
-      n.name=o.name; n.cmd=o.command||o.name; n.state=o.zone; n.mem=o.energy;
-      n.cpu=o.cpu||0; n.threads=o.threads||0; n.ppid=o.ppid||0; n.max=o.max||1;
-      n.tr=Math.min(58, 5+Math.sqrt(Math.max(n.mem,0))*1.75);
-      n.dying=0;
-    }
-    for(const n of nodes.values()) if(!seen.has(n.id) && !n.dying) n.dying=0.0001;
-
-    edges=(s.relations||[]).filter(r=>r.type==='lineage').map(r=>({from:r.from,to:r.to}));
-    childrenOf.clear(); parentOf.clear();
-    for(const e of edges){
-      if(!childrenOf.has(e.from)) childrenOf.set(e.from,[]);
-      childrenOf.get(e.from).push(e.to); parentOf.set(e.to,e.from);
-    }
-    computeLayout(); renderVitals(s); renderList();
+    procs=s.organisms;
+    procById=new Map(procs.map(p=>[p.id,p]));
+    buildDisplay();
+    computeLayout(); renderVitals(); renderList();
   }catch(e){/* attend le serveur */}
 }
 setInterval(poll,1000); poll();
 
+// Construit le graphe AFFICHÉ à partir des processus bruts : les fratries
+// homonymes de >= GROUP_MIN membres sous un même parent sont repliées en un
+// seul nœud « nom ×N » (sauf si dépliées). La liste, elle, reste complète.
+function buildDisplay(){
+  pidToGroupKey.clear();
+  const childrenByPid=new Map();
+  for(const p of procs){ if(!childrenByPid.has(p.ppid)) childrenByPid.set(p.ppid,[]);
+    childrenByPid.get(p.ppid).push(p); }
+
+  const hidden=new Set(), groups=[];
+  for(const [ppid,ch] of childrenByPid){
+    const byName=new Map();
+    for(const c of ch){ if(!byName.has(c.name)) byName.set(c.name,[]); byName.get(c.name).push(c); }
+    for(const [name,members] of byName){
+      const key=ppid+'|'+name;
+      if(members.length>=GROUP_MIN && !expanded.has(key)){
+        let mem=0,cpu=0,threads=0; const stc={};
+        for(const m of members){ mem+=m.energy; cpu+=(m.cpu||0); threads+=(m.threads||0);
+          stc[m.zone]=(stc[m.zone]||0)+1; hidden.add(m.id); pidToGroupKey.set(m.id,key); }
+        let state='sleeping',bb=-1; for(const k in stc) if(stc[k]>bb){bb=stc[k];state=k;}
+        groups.push({key,ppid,name,count:members.length,mem,cpu,threads,state});
+      }
+    }
+  }
+  // masquer aussi la descendance des membres repliés
+  let changed=true;
+  while(changed){ changed=false;
+    for(const p of procs) if(!hidden.has(p.id)&&hidden.has(p.ppid)){ hidden.add(p.id); changed=true; } }
+
+  const specs=[];
+  for(const p of procs){ if(hidden.has(p.id)) continue;
+    specs.push({id:p.id,name:p.name,state:p.zone,mem:p.energy,cpu:p.cpu||0,threads:p.threads||0,
+      ppid:p.ppid,cmd:p.command||p.name,max:p.max||1,isGroup:false}); }
+  for(const g of groups){
+    let gid=groupKeyToId.get(g.key); if(gid==null){ gid=groupIdSeq--; groupKeyToId.set(g.key,gid); }
+    specs.push({id:gid,name:g.name,state:g.state,mem:g.mem,cpu:g.cpu,threads:g.threads,
+      ppid:g.ppid,isGroup:true,count:g.count,groupKey:g.key,cmd:''}); }
+
+  const visible=new Set(specs.filter(s=>!s.isGroup).map(s=>s.id));
+  const dedges=[];
+  for(const p of procs){ if(!visible.has(p.id)) continue;
+    if(visible.has(p.ppid)) dedges.push({from:p.ppid,to:p.id}); }
+  for(const g of groups) dedges.push({from:g.ppid,to:groupKeyToId.get(g.key)});
+
+  const seen=new Set();
+  for(const s of specs){ seen.add(s.id);
+    let n=nodes.get(s.id);
+    if(!n){ const seed=hashStr(s.id), ang=(Math.abs(seed)%628)/100, rad=40+((Math.abs(seed)>>3)%120);
+      n={id:s.id,x:W/2+Math.cos(ang)*rad,y:H/2+Math.sin(ang)*rad,r:6,tr:6,alpha:0,dying:0}; nodes.set(s.id,n); }
+    Object.assign(n,{name:s.name,cmd:s.cmd,state:s.state,mem:s.mem,cpu:s.cpu,threads:s.threads,
+      ppid:s.ppid,isGroup:s.isGroup,count:s.count||0,groupKey:s.groupKey,max:s.max||1});
+    n.tr=Math.min(64, 5+Math.sqrt(Math.max(n.mem,0))*1.6);
+    n.dying=0;
+  }
+  for(const n of nodes.values()) if(!seen.has(n.id) && !n.dying) n.dying=0.0001;
+
+  edges=dedges;
+  childrenOf.clear(); parentOf.clear();
+  for(const e of edges){ if(!childrenOf.has(e.from)) childrenOf.set(e.from,[]);
+    childrenOf.get(e.from).push(e.to); parentOf.set(e.to,e.from); }
+}
+
+function toggleGroup(key){ if(!key) return;
+  if(expanded.has(key)) expanded.delete(key); else expanded.add(key);
+  buildDisplay(); computeLayout();
+  document.getElementById('regroup').style.display = expanded.size?'block':'none';
+}
+
 // ---------- vitals + liste ----------
 function fmtMem(mib){ return mib>=1024 ? (mib/1024).toFixed(1)+' GB' : Math.round(mib)+' MB'; }
-function renderVitals(s){
-  const live=[...nodes.values()].filter(n=>!n.dying);
-  const totMem=live.reduce((a,n)=>a+n.mem,0);
-  document.getElementById('vProc').textContent=live.length;
+function renderVitals(){
+  const totMem=procs.reduce((a,p)=>a+p.energy,0);
+  document.getElementById('vProc').textContent=procs.length;
   document.getElementById('vMem').textContent=fmtMem(totMem);
   const counts={};
-  for(const n of live) counts[n.state]=(counts[n.state]||0)+1;
+  for(const p of procs) counts[p.zone]=(counts[p.zone]||0)+1;
   const order=['running','sleeping','idle','deep-sleep','zombie','stopped'];
   document.getElementById('states').innerHTML=order.filter(k=>counts[k])
     .map(k=>`<span><i style="background:${stateColor(k)}"></i>${k.replace('-',' ')} ${counts[k]}</span>`).join('');
@@ -230,24 +292,26 @@ function lineageSet(id){
   return set;
 }
 function renderList(){
-  const live=[...nodes.values()].filter(n=>!n.dying);
   const q=query.trim().toLowerCase();
-  live.sort((a,b)=> sortKey==='name' ? a.name.localeCompare(b.name)
-                  : sortKey==='cpu' ? b.cpu-a.cpu : b.mem-a.mem);
+  const list=procs.slice().sort((a,b)=> sortKey==='name' ? a.name.localeCompare(b.name)
+                  : sortKey==='cpu' ? (b.cpu||0)-(a.cpu||0) : b.energy-a.energy);
   const lin = sel!=null ? lineageSet(sel) : null;
-  const maxMem=Math.max(1,...live.map(n=>n.mem));
+  const maxMem=Math.max(1,...list.map(p=>p.energy));
   const el=document.getElementById('list'); el.innerHTML='';
-  for(const n of live){
-    const match = !q || n.name.toLowerCase().includes(q);
+  for(const p of list){
+    const match = !q || p.name.toLowerCase().includes(q);
+    let inLin=true;
+    if(lin){ const gk=pidToGroupKey.get(p.id), gid=gk?groupKeyToId.get(gk):null;
+      inLin = lin.has(p.id) || (gid!=null && lin.has(gid)); }
     const row=document.createElement('div');
-    row.className='proc'+(n.id===sel?' sel':'')+((!match||(lin&&!lin.has(n.id)))?' dim':'');
+    row.className='proc'+(p.id===sel?' sel':'')+((!match||!inLin)?' dim':'');
     row.innerHTML=
-      `<span class="tag" style="background:${stateColor(n.state)}"></span>`+
-      `<span class="nm">${n.name} <small>${n.cpu>=1?Math.round(n.cpu)+'%':''}</small></span>`+
-      `<span class="mem">${fmtMem(n.mem)}</span>`+
-      `<span class="bar"><i style="width:${Math.max(3,100*n.mem/maxMem)}%;background:${stateColor(n.state)}"></i></span>`;
-    row.onmouseenter=()=>hover=n.id; row.onmouseleave=()=>hover=null;
-    row.onclick=()=>select(n.id);
+      `<span class="tag" style="background:${stateColor(p.zone)}"></span>`+
+      `<span class="nm">${p.name} <small>${(p.cpu||0)>=1?Math.round(p.cpu)+'%':''}</small></span>`+
+      `<span class="mem">${fmtMem(p.energy)}</span>`+
+      `<span class="bar"><i style="width:${Math.max(3,100*p.energy/maxMem)}%;background:${stateColor(p.zone)}"></i></span>`;
+    row.onmouseenter=()=>hover=p.id; row.onmouseleave=()=>hover=null;
+    row.onclick=()=>select(p.id);
     el.appendChild(row);
   }
 }
@@ -347,6 +411,12 @@ function drawCell(n,t,a){
   cellOutline(n,r,t); ctx.fillStyle=cyto; ctx.fill();
   cellOutline(n,r,t); ctx.strokeStyle=hexA(mix(col,'#ffffff',0.25),0.65*a);
   ctx.lineWidth=1.2; ctx.stroke();
+
+  // groupe replié : anneau pointillé de « colonie »
+  if(n.isGroup){
+    ctx.save(); ctx.setLineDash([4,5]); ctx.strokeStyle=hexA(col,0.5*a); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(n.x,n.y,r*1.32,0,7); ctx.stroke(); ctx.restore();
+  }
 
   // cils = threads (seulement sur les grosses cellules, pour ne pas charger)
   const th=n.threads||0;
@@ -467,13 +537,15 @@ function frame(now){
       ctx.beginPath(); ctx.arc(n.x,n.y,r+6,0,7); ctx.stroke();
     }
     // étiquette (dé-dupliquée par fratrie)
-    const p=parentOf.get(n.id), key=p!=null?p+'|'+n.name:null;
-    const gc=key?gCount.get(key):1;
-    const grouped=gc>=6;
-    const showLabel = (n.id===sel||n.id===hover) ||
-                      (r>14 && (!grouped || gRep.get(key)===n.id));
+    let label=n.name, showLabel;
+    if(n.isGroup){ label=`${n.name} ×${n.count}`; showLabel=r>10; }
+    else {
+      const p=parentOf.get(n.id), key=p!=null?p+'|'+n.name:null;
+      const gc=key?gCount.get(key):1, grouped=gc>=6;
+      showLabel=(n.id===sel||n.id===hover)||(r>14&&(!grouped||gRep.get(key)===n.id));
+      if(grouped && n.id!==sel && n.id!==hover) label=`${n.name} ×${gc}`;
+    }
     if(showLabel){
-      const label = (grouped && n.id!==sel && n.id!==hover) ? `${n.name} ×${gc}` : n.name;
       ctx.font='11px "IBM Plex Mono",monospace'; ctx.textAlign='center';
       ctx.fillStyle=hexA('#e8f0f8',Math.min(1,a+0.2));
       ctx.fillText(label, n.x, n.y+r+15);
@@ -518,14 +590,28 @@ cv.addEventListener('mousemove',e=>{ const r=cv.getBoundingClientRect();
   const n=nodeAt(e.clientX-r.left,e.clientY-r.top); hover=n?n.id:null;
   if(n){ tip.style.display='block'; tip.style.left=(e.clientX-r.left+14)+'px';
     tip.style.top=(e.clientY-r.top+10)+'px';
-    tip.textContent=`${n.name} · ${fmtMem(n.mem)} · ${Math.round(n.cpu)}%`;
+    tip.textContent = n.isGroup ? `${n.name} ×${n.count} · ${fmtMem(n.mem)} · click to expand`
+                                : `${n.name} · ${fmtMem(n.mem)} · ${Math.round(n.cpu)}%`;
     cv.style.cursor='pointer'; } else { tip.style.display='none'; cv.style.cursor='default'; } });
 cv.addEventListener('mouseleave',()=>{hover=null;tip.style.display='none';});
 cv.addEventListener('click',e=>{ const r=cv.getBoundingClientRect();
-  const n=nodeAt(e.clientX-r.left,e.clientY-r.top); select(n?n.id:null); });
+  const n=nodeAt(e.clientX-r.left,e.clientY-r.top);
+  if(n && n.isGroup) toggleGroup(n.groupKey);
+  else select(n?n.id:null); });
 
-function select(id){ sel=id; renderList(); renderCard(); }
+function select(id){
+  // sélectionner un process replié déplie son groupe pour le révéler
+  if(id!=null && !nodes.has(id) && pidToGroupKey.has(id)){
+    expanded.add(pidToGroupKey.get(id)); buildDisplay(); computeLayout();
+    document.getElementById('regroup').style.display='block';
+  }
+  sel=id; renderList(); renderCard();
+}
 document.getElementById('cClose').onclick=()=>select(null);
+document.getElementById('regroup').onclick=()=>{
+  expanded.clear(); buildDisplay(); computeLayout();
+  document.getElementById('regroup').style.display='none';
+};
 
 function kv(k,v){ return `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
 function renderCard(){
