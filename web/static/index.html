@@ -25,8 +25,8 @@
   #rail{position:relative;display:flex;flex-direction:column;min-height:0;
         border-right:1px solid var(--edge);
         background:
-          radial-gradient(130% 45% at 0% 0%, rgba(45,140,145,.2), transparent 60%),
-          linear-gradient(180deg,#08242f,#030c12);
+          radial-gradient(130% 45% at 0% 0%, rgba(92,72,175,.18), transparent 60%),
+          linear-gradient(180deg,#0a0f24,#03040c);
         box-shadow:12px 0 40px -22px rgba(0,0,0,.9)}
   .head{padding:18px 18px 15px;border-bottom:1px solid var(--edge)}
   .brand{font-size:12px;font-weight:600;letter-spacing:.36em;color:var(--sel);
@@ -184,6 +184,7 @@ let sel=null, hover=null, sortKey='mem', query='';
 let zoom=1, panX=0, panY=0;      // caméra : molette = zoom, glisser = pan
 let autoFitted=false;            // cadrage auto de l'arbre au 1er affichage
 let fitZoom=1, fitPanX=0, fitPanY=0;   // vue d'ensemble (double-clic y revient)
+let maxOrbit=300;                      // rayon de la plus grande orbite
 const childrenOf=new Map(), parentOf=new Map();
 
 // données brutes (la liste montre TOUS les processus) + repli des fratries
@@ -385,7 +386,7 @@ function computeLayout(){
   const place=(id,a0,a1)=>{
     const n=nodes.get(id); if(!n) return;
     const mid=(a0+a1)/2, d=depth.get(id)||1;
-    n.depth=d; n.tx=cx+Math.cos(mid)*d*ringGap; n.ty=cy+Math.sin(mid)*d*ringGap;
+    n.depth=d; n.baseAngle=mid; n.orbitR=d*ringGap;   // orbite : angle + rayon
     n.tr=Math.min(cap, n.tr);
     const ch=kids(id); let a=a0; const nc=ch.length;
     for(const c of ch){
@@ -402,7 +403,7 @@ function computeLayout(){
   }
 
   // cadrage : vue d'ensemble aérée, centrée, jamais minuscule
-  const maxR=maxDepth*ringGap;
+  const maxR=maxDepth*ringGap; maxOrbit=maxR;
   fitZoom=Math.min(1.05, (Math.min(W,H)*0.52)/maxR);
   fitPanX=cx-cx*fitZoom; fitPanY=cy-cy*fitZoom;
   if(!autoFitted){ zoom=fitZoom; panX=fitPanX; panY=fitPanY; autoFitted=true; }
@@ -413,9 +414,10 @@ function update(dt,t){
     if(n.dying){ n.dying+=dt*1.6; if(n.dying>=1){ nodes.delete(n.id); continue; } }
     n.alpha+=((n.dying?0:1)-n.alpha)*0.12;
     n.r+=(n.tr-n.r)*0.1;
-    if(n.tx!=null){
-      const bob=n.depth?Math.sin(t*0.7+n.id)*0.8:0;   // léger souffle vivant
-      n.x+=(n.tx-n.x)*0.12; n.y+=(n.ty+bob-n.y)*0.12;
+    if(n.baseAngle!=null){
+      const ang=n.baseAngle + t*ORBIT;                 // tout orbite autour de l'étoile
+      const tx=W/2+Math.cos(ang)*n.orbitR, ty=H/2+Math.sin(ang)*n.orbitR;
+      n.x+=(tx-n.x)*0.12; n.y+=(ty-n.y)*0.12;
     }
   }
 }
@@ -449,54 +451,38 @@ function drawCell(n,t,a){
     ctx.restore(); return;
   }
 
-  // halo bioluminescent
-  const gr=r*(2.0+cpuF*1.6);
+  // couronne / halo
+  const gr=r*(2.1+cpuF*1.8);
   ctx.save(); ctx.globalCompositeOperation='lighter';
   const halo=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,gr);
-  halo.addColorStop(0,hexA(col,(0.26+cpuF*0.4)*a));
-  halo.addColorStop(0.5,hexA(col,(0.09+cpuF*0.18)*a));
+  halo.addColorStop(0,hexA(col,(0.24+cpuF*0.45)*a));
+  halo.addColorStop(0.5,hexA(col,(0.08+cpuF*0.2)*a));
   halo.addColorStop(1,hexA(col,0));
   ctx.fillStyle=halo; ctx.beginPath(); ctx.arc(n.x,n.y,gr,0,7); ctx.fill();
   ctx.restore();
 
-  // cytoplasme translucide (centre sombre -> membrane)
-  const cyto=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,r);
-  cyto.addColorStop(0,hexA(mix(col,'#04121a',0.4),0.82*a));
-  cyto.addColorStop(1,hexA(col,0.5*a));
-  cellOutline(n,r,t); ctx.fillStyle=cyto; ctx.fill();
-  cellOutline(n,r,t); ctx.strokeStyle=hexA(mix(col,'#ffffff',0.25),0.65*a);
-  ctx.lineWidth=1.2; ctx.stroke();
+  // corps de l'astre : sphère avec lumière décalée (relief planétaire)
+  const body=ctx.createRadialGradient(n.x-r*0.35,n.y-r*0.35,r*0.1,n.x,n.y,r);
+  body.addColorStop(0,hexA(mix(col,'#ffffff',0.6),a));
+  body.addColorStop(0.55,hexA(col,a));
+  body.addColorStop(1,hexA(mix(col,'#01040a',0.55),a));
+  ctx.fillStyle=body; ctx.beginPath(); ctx.arc(n.x,n.y,r,0,7); ctx.fill();
 
-  // groupe replié : anneau pointillé de « colonie »
+  // astre actif (CPU élevé) = étoile : cœur incandescent
+  if(cpuF>0.04){
+    const hot=mix('#ffffff','#ffcf7a',cpuF*0.6);
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    const hg=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,r*1.35);
+    hg.addColorStop(0,hexA(hot,(0.5+cpuF*0.5)*a)); hg.addColorStop(1,hexA(hot,0));
+    ctx.fillStyle=hg; ctx.beginPath(); ctx.arc(n.x,n.y,r*1.35,0,7); ctx.fill();
+    ctx.restore();
+  }
+
+  // colonie repliée = amas (anneau pointillé)
   if(n.isGroup){
     ctx.save(); ctx.setLineDash([4,5]); ctx.strokeStyle=hexA(col,0.5*a); ctx.lineWidth=1;
     ctx.beginPath(); ctx.arc(n.x,n.y,r*1.32,0,7); ctx.stroke(); ctx.restore();
   }
-
-  // cils = threads (seulement sur les grosses cellules, pour ne pas charger)
-  const th=n.threads||0;
-  if(r>13 && th>1){
-    const N=Math.min(th,22);
-    ctx.strokeStyle=hexA(col,0.3*a); ctx.lineWidth=1;
-    for(let k=0;k<N;k++){
-      const ang=k/N*6.2832 + 0.15*Math.sin(t*1.6+k+n.id);
-      const w=1+0.05*Math.sin(3*ang+t*1.1+n.id);
-      const r0=r*w, r1=r0 + r*0.22*(0.7+0.3*Math.sin(t*3+k));
-      ctx.beginPath();
-      ctx.moveTo(n.x+Math.cos(ang)*r0, n.y+Math.sin(ang)*r0);
-      ctx.lineTo(n.x+Math.cos(ang)*r1, n.y+Math.sin(ang)*r1); ctx.stroke();
-    }
-  }
-
-  // noyau : chaud (ambre) quand le CPU grimpe
-  const nucCol=mix(mix(col,'#ffffff',0.55),'#ffcf7a',cpuF*0.7);
-  const nr=r*(0.24+cpuF*0.22)*pulse;
-  ctx.save(); ctx.globalCompositeOperation='lighter';
-  const ng=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,nr*2.4);
-  ng.addColorStop(0,hexA(nucCol,(0.7+cpuF*0.3)*a)); ng.addColorStop(1,hexA(nucCol,0));
-  ctx.fillStyle=ng; ctx.beginPath(); ctx.arc(n.x,n.y,nr*2.4,0,7); ctx.fill();
-  ctx.fillStyle=hexA(nucCol,0.92*a); ctx.beginPath(); ctx.arc(n.x,n.y,nr,0,7); ctx.fill();
-  ctx.restore();
 }
 
 // branche radiale : courbe qui part du parent le long de l'angle de l'enfant
@@ -510,25 +496,22 @@ function drawBranch(a,b,style,w){
 }
 
 // ---------- rendu ----------
-// ---------- ambiance aquatique ----------
-const snow=[...Array(150)].map(()=>({x:Math.random(),y:Math.random(),
-  s:Math.random()*1.7+0.4, v:Math.random()*9+3, d:Math.random()*6.28}));
-function drawSnow(t,dt){ ctx.save(); ctx.globalCompositeOperation='lighter';
-  for(const p of snow){ p.y+=(p.v*dt)/Math.max(H,1); p.x+=Math.sin(t*0.3+p.d)*0.0004;
-    if(p.y>1.03){ p.y=-0.03; p.x=Math.random(); }
-    const a=0.08+0.10*Math.sin(t*0.5+p.d);
-    ctx.fillStyle=`rgba(150,222,214,${Math.max(0,a)})`;
-    ctx.beginPath(); ctx.arc(p.x*W,p.y*H,p.s,0,7); ctx.fill(); }
+// ---------- ambiance spatiale ----------
+const ORBIT=0.02;   // vitesse de rotation orbitale (rad/s)
+const stars=[...Array(280)].map(()=>({x:Math.random(),y:Math.random(),
+  s:Math.random()*1.4+0.3, p:Math.random()*6.28, tw:Math.random()*2+0.4}));
+function drawStars(t){ ctx.save(); ctx.globalCompositeOperation='lighter';
+  for(const st of stars){ const a=(0.35+0.45*Math.sin(t*st.tw+st.p))*0.7;
+    ctx.fillStyle=`rgba(205,218,245,${Math.max(0,a)})`;
+    ctx.beginPath(); ctx.arc(st.x*W,st.y*H,st.s,0,7); ctx.fill(); }
   ctx.restore(); }
-function drawRays(t){ ctx.save(); ctx.globalCompositeOperation='lighter';
-  for(let i=0;i<4;i++){ const bx=W*(0.22+0.19*i)+Math.sin(t*0.06+i)*40;
-    const a=0.026+0.02*Math.sin(t*0.3+i*1.7);
-    const g=ctx.createLinearGradient(bx,0,bx-240,H);
-    g.addColorStop(0,`rgba(95,225,215,${a})`); g.addColorStop(1,'rgba(95,225,215,0)');
-    ctx.fillStyle=g; ctx.beginPath();
-    ctx.moveTo(bx-70,0); ctx.lineTo(bx+70,0); ctx.lineTo(bx+70-300,H); ctx.lineTo(bx-70-300,H);
-    ctx.closePath(); ctx.fill(); }
-  ctx.restore(); }
+function drawNebula(){ ctx.save(); ctx.globalCompositeOperation='lighter';
+  const n1=ctx.createRadialGradient(W*0.76,H*0.22,0,W*0.76,H*0.22,W*0.5);
+  n1.addColorStop(0,'rgba(96,70,170,.1)'); n1.addColorStop(1,'rgba(96,70,170,0)');
+  ctx.fillStyle=n1; ctx.fillRect(0,0,W,H);
+  const n2=ctx.createRadialGradient(W*0.18,H*0.82,0,W*0.18,H*0.82,W*0.46);
+  n2.addColorStop(0,'rgba(34,130,150,.09)'); n2.addColorStop(1,'rgba(34,130,150,0)');
+  ctx.fillStyle=n2; ctx.fillRect(0,0,W,H); ctx.restore(); }
 
 let last=performance.now();
 function frame(now){
@@ -536,27 +519,29 @@ function frame(now){
   update(dt,t);
   ctx.clearRect(0,0,W,H);
   // fond
-  // fond océanique : eaux teintées près de la surface -> abysse en profondeur
-  const og=ctx.createLinearGradient(0,0,0,H);
-  og.addColorStop(0,'#0a2732'); og.addColorStop(0.5,'#06131d'); og.addColorStop(1,'#02060b');
-  ctx.fillStyle=og; ctx.fillRect(0,0,W,H);
-  const surf=ctx.createRadialGradient(W/2,-H*0.15,0,W/2,-H*0.15,H*1.15);
-  surf.addColorStop(0,'rgba(44,150,150,.16)'); surf.addColorStop(1,'rgba(44,150,150,0)');
-  ctx.fillStyle=surf; ctx.fillRect(0,0,W,H);
-  drawRays(t); drawSnow(t,dt);
+  // fond spatial : nuit profonde, nébuleuses, champ d'étoiles
+  const sp=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*0.75);
+  sp.addColorStop(0,'#0a0f1e'); sp.addColorStop(1,'#03040a');
+  ctx.fillStyle=sp; ctx.fillRect(0,0,W,H);
+  drawNebula(); drawStars(t);
 
-  const swayX=Math.sin(t*0.28)*7, swayY=Math.cos(t*0.21)*5;   // courant
-  ctx.save(); ctx.translate(panX+swayX,panY+swayY); ctx.scale(zoom,zoom);   // caméra
+  ctx.save(); ctx.translate(panX,panY); ctx.scale(zoom,zoom);   // caméra
   // cœur du système au centre (racine de l'arbre) + anneaux de profondeur
   if(nodes.size){
-    ctx.save();
-    for(let d=1; d*ringGap<Math.min(W,H)*0.5; d++){
+    // orbites (les anneaux de profondeur)
+    for(let d=1; d*ringGap<maxOrbit*1.15; d++){
       ctx.beginPath(); ctx.arc(W/2,H/2,d*ringGap,0,7);
-      ctx.strokeStyle='rgba(120,150,185,.045)'; ctx.lineWidth=1; ctx.stroke();
+      ctx.strokeStyle='rgba(130,160,210,.06)'; ctx.lineWidth=1; ctx.stroke();
     }
-    const core=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,26);
-    core.addColorStop(0,'rgba(87,242,214,.5)'); core.addColorStop(1,'rgba(87,242,214,0)');
-    ctx.fillStyle=core; ctx.beginPath(); ctx.arc(W/2,H/2,26,0,7); ctx.fill();
+    // étoile centrale = racine du système
+    const R0=30+4*Math.sin(t*1.6);
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    const star=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,R0*2.6);
+    star.addColorStop(0,'rgba(255,246,220,.95)');
+    star.addColorStop(0.28,'rgba(255,208,138,.5)');
+    star.addColorStop(1,'rgba(255,176,90,0)');
+    ctx.fillStyle=star; ctx.beginPath(); ctx.arc(W/2,H/2,R0*2.6,0,7); ctx.fill();
+    ctx.fillStyle='rgba(255,251,238,.95)'; ctx.beginPath(); ctx.arc(W/2,H/2,R0*0.5,0,7); ctx.fill();
     ctx.restore();
   }
 
