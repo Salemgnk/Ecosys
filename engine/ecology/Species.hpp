@@ -4,16 +4,17 @@
     #include "Genome.hpp"
 
 class Species {
-    private : 
+    private :
         std::string name_;
         double metabolicCost_;
         double reproductionThreshold_;
         double reproductionCost_;
         double aggressiveness_;
-        
+        double biteSize_;   // prédateur : énergie prélevée par morsure (défaut 4)
+
     public :
-        Species(std::string name, double metabolicCost, double reproductionThreshold, double reproductionCost, double aggressiveness):
-            name_(name), metabolicCost_(metabolicCost), reproductionThreshold_(reproductionThreshold), reproductionCost_(reproductionCost), aggressiveness_(aggressiveness)
+        Species(std::string name, double metabolicCost, double reproductionThreshold, double reproductionCost, double aggressiveness, double biteSize = 4.0):
+            name_(name), metabolicCost_(metabolicCost), reproductionThreshold_(reproductionThreshold), reproductionCost_(reproductionCost), aggressiveness_(aggressiveness), biteSize_(biteSize)
         {
 
         }
@@ -46,6 +47,7 @@ class Species {
             g.reproductionThreshold = reproductionThreshold_;
             g.reproductionCost = reproductionCost_;
             g.aggressiveness = aggressiveness_;
+            g.biteSize = biteSize_;
             return g;
         }
 };

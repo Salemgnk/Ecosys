@@ -8,6 +8,7 @@
 #include "Zone.hpp"
 #include "Grazer.hpp"
 #include "Explorer.hpp"
+#include "Predator.hpp"
 #include "World.hpp"
 #include "Interpreter.hpp"
 
@@ -124,6 +125,32 @@ static void test_dead_organism_leaves_the_graph()
     REQUIRE(graph.all().empty());
 }
 
+static void test_predator_hunts_prey()
+{
+    World w(1);
+    w.addZone(Zone("z", 0.0));   // aucune énergie de zone : seule la chasse nourrit
+    auto herb = std::make_shared<const Species>("Grazer", 0.0, 100.0, 50.0, 0.5);
+    auto pred = std::make_shared<const Species>("Predator", 0.0, 100.0, 50.0, 0.5, 5.0);
+    w.addOrganism(std::make_unique<Grazer>(herb, 10.0, "z"));
+    w.addOrganism(std::make_unique<Predator>(pred, 10.0, "z"));
+
+    w.tick();
+    Organism* p = nullptr; Organism* g = nullptr;
+    for (Organism* o : w.organismsInZone("z")) { if (o->eatsMeat()) p = o; else g = o; }
+    REQUIRE(p != nullptr && p->energy() > 10.0);   // le prédateur a chassé
+    REQUIRE(g != nullptr && g->energy() < 10.0);   // la proie a été mordue
+}
+
+static void test_genome_mutates_on_reproduce()
+{
+    std::mt19937 rng(7);
+    Grazer parent(makeSpecies(2.0, 100.0, 4.0, 0.5), 50.0, "z");
+    std::unique_ptr<Organism> child = parent.reproduce(rng);
+    REQUIRE(child != nullptr);
+    // l'enfant hérite d'un génome MUTÉ (au moins un trait diffère)
+    REQUIRE(child->genome().metabolicCost != parent.genome().metabolicCost);
+}
+
 static void test_explorer_migrates_to_richer_zone()
 {
     World world(1);
@@ -132,8 +159,14 @@ static void test_explorer_migrates_to_richer_zone()
     auto explorer = std::make_shared<const Species>("Explorer", 1.0, 100.0, 1.0, 0.5);
     world.addOrganism(std::make_unique<Explorer>(explorer, 10.0, "poor"));
 
-    world.tick();
-    REQUIRE(world.organismsInZone("rich").size() == 1);
+    // La migration est désormais exploratoire (probabiliste) : elle survient en
+    // quelques ticks, pas forcément au premier.
+    bool migrated = false;
+    for (int t = 0; t < 80 && !migrated; ++t) {
+        world.tick();
+        migrated = !world.organismsInZone("rich").empty();
+    }
+    REQUIRE(migrated);
     REQUIRE(world.organismsInZone("poor").empty());
 }
 
@@ -147,6 +180,8 @@ int main()
     test_simulation_is_deterministic();
     test_relation_graph_records_lineage_and_competition();
     test_dead_organism_leaves_the_graph();
+    test_predator_hunts_prey();
+    test_genome_mutates_on_reproduce();
     test_explorer_migrates_to_richer_zone();
 
     if (g_failures > 0) {

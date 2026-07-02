@@ -180,17 +180,20 @@ void simulationLoop()
     world.addZone(Zone("savanna", 8.0));
     world.addZone(Zone("desert", 5.0));
 
-    auto grazer   = std::make_shared<const Species>("Grazer", 2.0, 12.0, 6.0, 0.5);
-    auto explorer = std::make_shared<const Species>("Explorer", 3.0, 14.0, 7.0, 0.8);
-    auto predator = std::make_shared<const Species>("Predator", 4.0, 18.0, 9.0, 0.9);
+    // Proies qui se reproduisent vite (seuils bas) -> elles encaissent la
+    // prédation ; prédateurs peu nombreux et modérés -> le cycle oscille au
+    // lieu de s'effondrer d'un coup.
+    auto grazer   = std::make_shared<const Species>("Grazer", 1.8, 9.0, 4.5, 0.5);
+    auto explorer = std::make_shared<const Species>("Explorer", 2.4, 11.0, 5.5, 0.8);
+    auto predator = std::make_shared<const Species>("Predator", 3.0, 24.0, 12.0, 0.9, 5.0);
 
     const char* biomes[] = {"forest", "plains", "shoreline", "savanna", "desert"};
     for (const char* b : biomes) {
-        for (int i = 0; i < 4; ++i) world.addOrganism(std::make_unique<Grazer>(grazer, 6.0, b));
+        for (int i = 0; i < 5; ++i) world.addOrganism(std::make_unique<Grazer>(grazer, 6.0, b));
         for (int i = 0; i < 2; ++i) world.addOrganism(std::make_unique<Explorer>(explorer, 6.0, b));
     }
     for (const char* b : {"forest", "plains"}) {
-        for (int i = 0; i < 2; ++i) world.addOrganism(std::make_unique<Predator>(predator, 8.0, b));
+        world.addOrganism(std::make_unique<Predator>(predator, 12.0, b));
     }
 
     Interpreter interpreter;
