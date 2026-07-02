@@ -155,15 +155,17 @@ their energy bars — a full bar means ready to reproduce — plus a color-coded
 event feed.
 
 The web dashboard is a **living system monitor** — `htop` reimagined as an
-ecosystem. Every process is a cell in a force-directed constellation:
+ecosystem. Every process is a cell in a **radial tree**: the system root at
+the center, each generation of processes on a wider ring, branches fanning out
+so the hierarchy is legible by construction (no hairball).
 
 - **size = memory (RSS)** — the biggest consumers dominate the field
 - **glow = CPU** — busy processes pulse and flare; idle ones stay dim
 - **hue = state** — running (green), sleeping (blue), zombie (coral)…
-- **threads = the process tree (PPID)** — parents wired to children, so
-  `systemd`, your shell and the browser process become visible hubs (memory
-  ranking keeps the top ~50, and their ancestors are pulled in to keep the
-  tree whole)
+- **rings & branches = the process tree (PPID)** — depth from the center is
+  ancestry depth, so `systemd`, your shell and the browser process anchor the
+  inner rings (memory ranking keeps the top ~50, and their ancestors are
+  pulled in to keep the tree whole)
 
 The left rail is the instrument side: live vitals, a search filter, sortable
 columns (memory / cpu / name) and a process list wired to the graph. Click any

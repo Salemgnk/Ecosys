@@ -149,8 +149,8 @@
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 let W=0,H=0,DPR=Math.min(devicePixelRatio||1,2);
 function resize(){ const r=cv.parentElement.getBoundingClientRect();
-  W=r.width; H=r.height; cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0); }
-new ResizeObserver(resize).observe(document.getElementById('scene')); resize();
+  W=r.width; H=r.height; cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+  computeLayout(); }
 
 // ---------- couleurs d'état ----------
 const STATE={ running:'#5ef2a8', sleeping:'#4aa8ff', idle:'#7b8698',
@@ -165,6 +165,9 @@ let edges=[];                    // {from,to} lineage
 let mode='—', canKill=false;
 let sel=null, hover=null, sortKey='mem', query='';
 const childrenOf=new Map(), parentOf=new Map();
+
+// init taille du canvas maintenant que l'état est déclaré (computeLayout y accède)
+new ResizeObserver(resize).observe(document.getElementById('scene')); resize();
 
 function hashStr(s){let h=2166136261;for(const c of String(s)){h^=c.codePointAt(0);h=Math.imul(h,16777619);}return h>>>0;}
 
@@ -200,7 +203,7 @@ async function poll(){
       if(!childrenOf.has(e.from)) childrenOf.set(e.from,[]);
       childrenOf.get(e.from).push(e.to); parentOf.set(e.to,e.from);
     }
-    renderVitals(s); renderList();
+    computeLayout(); renderVitals(s); renderList();
   }catch(e){/* attend le serveur */}
 }
 setInterval(poll,1000); poll();
@@ -254,61 +257,103 @@ document.querySelectorAll('.sort button').forEach(b=>b.onclick=()=>{
   renderList();
 });
 
-// ---------- force sim ----------
-function step(dt){
-  const arr=[...nodes.values()], cx=W/2, cy=H/2;
-  for(const n of arr){
+// ---------- arbre radial : mise en page déterministe (aérée par construction) ----------
+let ringGap=80;
+function computeLayout(){
+  const live=[...nodes.values()].filter(n=>!n.dying);
+  if(!live.length) return;
+  const inSet=new Set(live.map(n=>n.id));
+  const kids=id=>(childrenOf.get(id)||[]).filter(c=>inSet.has(c));
+  const roots=live.filter(n=>!(parentOf.has(n.id)&&inSet.has(parentOf.get(n.id))))
+                  .sort((a,b)=>b.mem-a.mem);
+  // profondeur (BFS) — racines au rayon 1, centre laissé vide
+  const depth=new Map(); let maxDepth=1;
+  const q=[]; for(const r of roots){ depth.set(r.id,1); q.push(r.id); }
+  while(q.length){ const id=q.shift(), d=depth.get(id); maxDepth=Math.max(maxDepth,d);
+    for(const c of kids(id)) if(!depth.has(c)){ depth.set(c,d+1); q.push(c); } }
+  // poids = nombre de feuilles (pour répartir l'angle)
+  const weight=new Map();
+  const leaves=id=>{ const ch=kids(id); if(!ch.length){weight.set(id,1);return 1;}
+    let s=0; for(const c of ch) s+=leaves(c); weight.set(id,s); return s; };
+  let total=0; for(const r of roots) total+=leaves(r.id); total=Math.max(total,1);
+
+  const cx=W/2, cy=H/2, avail=Math.min(W,H)*0.48;
+  ringGap=avail/maxDepth;
+  const cap=Math.max(6,ringGap*0.36);
+  const place=(id,a0,a1)=>{
+    const n=nodes.get(id); if(!n) return;
+    const mid=(a0+a1)/2, d=depth.get(id)||1;
+    n.depth=d; n.tx=cx+Math.cos(mid)*d*ringGap; n.ty=cy+Math.sin(mid)*d*ringGap;
+    n.tr=Math.min(cap, n.tr);
+    const ch=kids(id); let a=a0; const nc=ch.length;
+    for(const c of ch){
+      // mélange 50% proportionnel aux feuilles / 50% équitable :
+      // les gros sous-arbres gardent l'avantage, les petits respirent.
+      const frac=0.5*(weight.get(c)/weight.get(id)) + 0.5/nc;
+      const span=(a1-a0)*frac; place(c,a,a+span); a+=span;
+    }
+  };
+  let a=-Math.PI/2; const nr=Math.max(roots.length,1);
+  for(const r of roots){
+    const frac=0.5*(weight.get(r.id)/total) + 0.5/nr;
+    const span=2*Math.PI*frac; place(r.id,a,a+span); a+=span;
+  }
+}
+
+function update(dt,t){
+  for(const n of [...nodes.values()]){
     if(n.dying){ n.dying+=dt*1.6; if(n.dying>=1){ nodes.delete(n.id); continue; } }
     n.alpha+=((n.dying?0:1)-n.alpha)*0.12;
-    n.r+=(n.tr-n.r)*0.08;
+    n.r+=(n.tr-n.r)*0.1;
+    if(n.tx!=null){
+      const bob=n.depth?Math.sin(t*0.7+n.id)*0.8:0;   // léger souffle vivant
+      n.x+=(n.tx-n.x)*0.12; n.y+=(n.ty+bob-n.y)*0.12;
+    }
   }
-  // répulsion (charge) + collision douce — forte, pour que le graphe respire
-  for(let i=0;i<arr.length;i++) for(let j=i+1;j<arr.length;j++){
-    const a=arr[i],b=arr[j]; let dx=b.x-a.x, dy=b.y-a.y; let d2=dx*dx+dy*dy||0.01;
-    const minD=a.r+b.r+22; const d=Math.sqrt(d2);
-    let f=13000/d2; if(d<minD) f+=(minD-d)*0.5;
-    const ux=dx/d, uy=dy/d;
-    a.vx-=ux*f*dt; a.vy-=uy*f*dt; b.vx+=ux*f*dt; b.vy+=uy*f*dt;
-  }
-  // ressorts de filiation
-  for(const e of edges){
-    const a=nodes.get(e.from), b=nodes.get(e.to); if(!a||!b) continue;
-    let dx=b.x-a.x, dy=b.y-a.y, d=Math.hypot(dx,dy)||0.01;
-    const rest=a.r+b.r+70, f=(d-rest)*0.02; const ux=dx/d, uy=dy/d;
-    a.vx+=ux*f; a.vy+=uy*f; b.vx-=ux*f; b.vy-=uy*f;
-  }
-  // centrage (plus fort verticalement pour tenir dans le cadre) + intégration
-  for(const n of arr){
-    n.vx+=(cx-n.x)*0.0010; n.vy+=(cy-n.y)*0.0018;
-    n.vx*=0.9; n.vy*=0.9;
-    n.x+=n.vx; n.y+=n.vy;
-    const m=48; n.x=Math.max(m,Math.min(W-m,n.x)); n.y=Math.max(m,Math.min(H-m,n.y));
-  }
+}
+
+// branche radiale : courbe qui part du parent le long de l'angle de l'enfant
+function drawBranch(a,b,style,w){
+  const cx=W/2, cy=H/2;
+  const par=(a.depth||1)<=(b.depth||1)?a:b, chi=par===a?b:a;
+  const rp=Math.hypot(par.x-cx,par.y-cy), ang=Math.atan2(chi.y-cy,chi.x-cx);
+  ctx.beginPath(); ctx.moveTo(par.x,par.y);
+  ctx.quadraticCurveTo(cx+Math.cos(ang)*rp, cy+Math.sin(ang)*rp, chi.x,chi.y);
+  ctx.strokeStyle=style; ctx.lineWidth=w; ctx.stroke();
 }
 
 // ---------- rendu ----------
 let last=performance.now();
 function frame(now){
   const dt=Math.min(0.05,(now-last)/1000); last=now; const t=now/1000;
-  step(dt);
+  update(dt,t);
   ctx.clearRect(0,0,W,H);
   // fond
   const bg=ctx.createRadialGradient(W/2,H*0.42,0,W/2,H*0.42,Math.max(W,H)*0.7);
   bg.addColorStop(0,'#0a1119'); bg.addColorStop(1,'#05070c');
   ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  // cœur du système au centre (racine de l'arbre) + anneaux de profondeur
+  if(nodes.size){
+    ctx.save();
+    for(let d=1; d*ringGap<Math.min(W,H)*0.5; d++){
+      ctx.beginPath(); ctx.arc(W/2,H/2,d*ringGap,0,7);
+      ctx.strokeStyle='rgba(120,150,185,.045)'; ctx.lineWidth=1; ctx.stroke();
+    }
+    const core=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,26);
+    core.addColorStop(0,'rgba(87,242,214,.5)'); core.addColorStop(1,'rgba(87,242,214,0)');
+    ctx.fillStyle=core; ctx.beginPath(); ctx.arc(W/2,H/2,26,0,7); ctx.fill();
+    ctx.restore();
+  }
 
   const lin = sel!=null ? lineageSet(sel) : null;
   const q=query.trim().toLowerCase();
   const isLit=n=> (!lin||lin.has(n.id)) && (!q||n.name.toLowerCase().includes(q));
 
-  // arêtes de base (sous les nœuds) : l'arbre PPID toujours esquissé
+  // branches de base (sous les nœuds) : l'arbre PPID toujours esquissé
   for(const e of edges){
     const a=nodes.get(e.from), b=nodes.get(e.to); if(!a||!b) continue;
     if(lin && lin.has(a.id) && lin.has(b.id)) continue;  // dessinée par-dessus après
-    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2-18;
-    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.quadraticCurveTo(mx,my,b.x,b.y);
-    ctx.strokeStyle=lin?'rgba(90,110,140,.05)':'rgba(120,150,185,.20)'; ctx.lineWidth=1;
-    ctx.stroke();
+    drawBranch(a,b, lin?'rgba(90,110,140,.06)':'rgba(120,150,185,.20)', 1);
   }
 
   // nœuds
@@ -343,15 +388,13 @@ function frame(now){
     }
   }
 
-  // arêtes de lignée (par-dessus les nœuds) : fils bioluminescents cyan
+  // branches de lignée (par-dessus les nœuds) : fils bioluminescents cyan
   if(lin){
     ctx.save(); ctx.shadowColor='#57f2d6'; ctx.shadowBlur=8;
     for(const e of edges){
       const a=nodes.get(e.from), b=nodes.get(e.to); if(!a||!b) continue;
       if(!(lin.has(a.id)&&lin.has(b.id))) continue;
-      const mx=(a.x+b.x)/2, my=(a.y+b.y)/2-18;
-      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.quadraticCurveTo(mx,my,b.x,b.y);
-      ctx.strokeStyle='rgba(87,242,214,.85)'; ctx.lineWidth=1.6; ctx.stroke();
+      drawBranch(a,b,'rgba(87,242,214,.85)',1.6);
     }
     ctx.restore();
   }
