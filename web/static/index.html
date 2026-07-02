@@ -448,6 +448,14 @@ function frame(now){
   }
   ctx.restore();
 
+  // fratries homonymes : on ne veut qu'UNE étiquette « nom ×N » par groupe
+  const gCount=new Map(), gRep=new Map();
+  for(const n of nodes.values()){
+    if(n.dying) continue; const p=parentOf.get(n.id); if(p==null) continue;
+    const key=p+'|'+n.name; gCount.set(key,(gCount.get(key)||0)+1);
+    if(!gRep.has(key)) gRep.set(key,n.id);
+  }
+
   // nœuds = cellules
   for(const n of nodes.values()){
     const lit=isLit(n); const a=n.alpha*(lit?1:0.14);
@@ -458,10 +466,17 @@ function frame(now){
       ctx.strokeStyle=hexA('#57f2d6',0.9); ctx.lineWidth=1.4;
       ctx.beginPath(); ctx.arc(n.x,n.y,r+6,0,7); ctx.stroke();
     }
-    if(r>14||n.id===sel||n.id===hover){
+    // étiquette (dé-dupliquée par fratrie)
+    const p=parentOf.get(n.id), key=p!=null?p+'|'+n.name:null;
+    const gc=key?gCount.get(key):1;
+    const grouped=gc>=6;
+    const showLabel = (n.id===sel||n.id===hover) ||
+                      (r>14 && (!grouped || gRep.get(key)===n.id));
+    if(showLabel){
+      const label = (grouped && n.id!==sel && n.id!==hover) ? `${n.name} ×${gc}` : n.name;
       ctx.font='11px "IBM Plex Mono",monospace'; ctx.textAlign='center';
       ctx.fillStyle=hexA('#e8f0f8',Math.min(1,a+0.2));
-      ctx.fillText(n.name, n.x, n.y+r+15);
+      ctx.fillText(label, n.x, n.y+r+15);
     }
   }
 
