@@ -107,8 +107,8 @@ Used for:
 - [x] Narrative interpreter system
 - [x] Linux process observer
 - [x] TUI ecosystem viewer
+- [x] Web dashboard (localhost)
 - [ ] Relationship graph engine
-- [ ] Web dashboard (localhost)
 
 ---
 
@@ -143,13 +143,23 @@ cmake -S . -B build && cmake --build build
 ./build/ecosys            # simulation mode (plain narration)
 ./build/ecosys-tui        # simulation mode, full-terminal ecosystem view
 ./build/ecosys-observe    # observation mode (mirrors /proc)
+./build/ecosys-web        # god view at http://localhost:8080 (simulation)
+./build/ecosys-web --observe   # god view of your real Linux system
 ctest --test-dir build    # run the test suites
 ```
 
 The TUI (built on [FTXUI](https://github.com/ArthurSonzogni/FTXUI), fetched
 automatically by CMake) shows each zone as a panel with its organisms and
 their energy bars — a full bar means ready to reproduce — plus a color-coded
-event feed. No web dashboard yet.
+event feed.
+
+The web dashboard is a **god view**: zones are organic islands drifting in the
+dark, organisms are living creatures that wander, pulse with energy, migrate
+between islands and fade away when they die. Hover a creature for a quick
+look, click it (or an island) for details. In `--observe` mode the islands are
+process states and the creatures are your machine's actual processes. The
+C++ server (cpp-httplib, fetched by CMake) streams world state as JSON; the
+frontend is a single dependency-free Canvas page.
 
 ---
 
