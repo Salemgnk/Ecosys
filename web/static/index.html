@@ -526,6 +526,35 @@ function cellOutline(n,r,t){
   }
   ctx.closePath();
 }
+// Silhouette propre à chaque espèce (simulation) : l'herbivore est une cellule
+// ronde, l'éclaireur une goutte fuselée orientée dans le sens de l'orbite, le
+// prédateur une étoile hérissée qui tourne. En observation (ou pour un groupe),
+// on garde la cellule ronde. Le chemin est laissé prêt à remplir/tracer.
+function bodyPath(n,r,t){
+  const cx=n.x, cy=n.y;
+  if(mode==='simulation' && !n.isGroup){
+    if(n.name==='Explorer'){                    // goutte fuselée, nez en avant
+      const head=Math.atan2(cy-H/2,cx-W/2)+Math.PI/2;   // tangente de l'orbite
+      const ux=Math.cos(head),uy=Math.sin(head),px=-uy,py=ux;
+      ctx.beginPath();
+      ctx.moveTo(cx+ux*r*1.8, cy+uy*r*1.8);
+      ctx.quadraticCurveTo(cx+px*r*0.95, cy+py*r*0.95, cx-ux*r*0.95, cy-uy*r*0.95);
+      ctx.quadraticCurveTo(cx-px*r*0.95, cy-py*r*0.95, cx+ux*r*1.8, cy+uy*r*1.8);
+      ctx.closePath(); return r*1.8;
+    }
+    if(n.name==='Predator'){                    // étoile hérissée, lente rotation
+      const spikes=7, rot=t*0.5+n.id;
+      ctx.beginPath();
+      for(let i=0;i<=spikes*2;i++){
+        const ang=rot+i*Math.PI/spikes, rr=(i%2===0)?r*1.55:r*0.58;
+        const x=cx+Math.cos(ang)*rr, y=cy+Math.sin(ang)*rr;
+        i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+      }
+      ctx.closePath(); return r*1.55;
+    }
+  }
+  cellOutline(n,r,t); return r;                  // Grazer / groupes / observation
+}
 function drawCell(n,t,a){
   const col=nodeColor(n);
   const cpuF=Math.min((n.cpu||0)/100,2)/2;                 // 0..1
@@ -553,12 +582,15 @@ function drawCell(n,t,a){
   ctx.fillStyle=halo; ctx.beginPath(); ctx.arc(n.x,n.y,gr,0,7); ctx.fill();
   ctx.restore();
 
-  // corps de l'astre : sphère avec lumière décalée (relief planétaire)
-  const body=ctx.createRadialGradient(n.x-r*0.35,n.y-r*0.35,r*0.1,n.x,n.y,r);
+  // corps : silhouette d'espèce, remplie d'un dégradé à lumière décalée (relief)
+  const rOut=bodyPath(n,r,t);                   // trace le chemin, renvoie l'extension max
+  const body=ctx.createRadialGradient(n.x-r*0.35,n.y-r*0.35,r*0.1,n.x,n.y,rOut);
   body.addColorStop(0,hexA(mix(col,'#ffffff',0.6),a));
   body.addColorStop(0.55,hexA(col,a));
   body.addColorStop(1,hexA(mix(col,'#01040a',0.55),a));
-  ctx.fillStyle=body; ctx.beginPath(); ctx.arc(n.x,n.y,r,0,7); ctx.fill();
+  ctx.fillStyle=body; ctx.fill();
+  // liseré : détache la silhouette du fond
+  ctx.strokeStyle=hexA(mix(col,'#ffffff',0.5),0.4*a); ctx.lineWidth=1; ctx.stroke();
 
   // astre actif (CPU élevé) = étoile : cœur incandescent
   if(cpuF>0.04){

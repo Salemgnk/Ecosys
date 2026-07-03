@@ -191,7 +191,7 @@ void simulationLoop()
     // lieu de s'effondrer d'un coup.
     auto grazer   = std::make_shared<const Species>("Grazer", 1.8, 9.0, 4.5, 0.5);
     auto explorer = std::make_shared<const Species>("Explorer", 2.4, 11.0, 5.5, 0.8);
-    auto predator = std::make_shared<const Species>("Predator", 3.0, 24.0, 12.0, 0.9, 5.0);
+    auto predator = std::make_shared<const Species>("Predator", 2.4, 24.0, 12.0, 0.9, 6.0);
 
     const char* biomes[] = {"forest", "plains", "shoreline", "savanna", "desert"};
     for (const char* b : biomes) {
@@ -213,7 +213,8 @@ void simulationLoop()
                 if (c.action == "seed" && world.hasZone(c.zone)) {
                     for (int i = 0; i < 3; ++i) {
                         if (c.species == "Predator")
-                            world.addOrganism(std::make_unique<Predator>(predator, 12.0, c.zone));
+                            // réserve de départ généreuse : le temps de trouver une proie
+                            world.addOrganism(std::make_unique<Predator>(predator, 22.0, c.zone));
                         else if (c.species == "Explorer")
                             world.addOrganism(std::make_unique<Explorer>(explorer, 6.0, c.zone));
                         else
